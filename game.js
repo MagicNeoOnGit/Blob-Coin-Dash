@@ -10,34 +10,41 @@ const TOTAL_COINS = 10;
 const MAX_DEATHS = 3;
 const GROUND_Y = 492;
 const PLAYER_SIZE = 36;
+const CROUCH_HEIGHT = 24;
 const COIN_RADIUS = 12;
 const MIN_PLATFORM_COUNT = 10;
 const MAX_PLATFORM_COUNT = 16;
+const MAX_PLATFORM_DISTANCE = 380;
+const PLATFORM_PLACEMENT_ATTEMPTS = 40;
+const PLATFORM_Y_MIN = 80;
+const PLATFORM_Y_MAX = GROUND_Y - 25;
+const SPAWN_RECT = { x: 80, y: GROUND_Y - PLAYER_SIZE, width: PLAYER_SIZE, height: PLAYER_SIZE };
 
 const PLATFORM_TEMPLATES = [
-  { xRange: [50, 90], y: 420, widthRange: [170, 210], isSpawn: true },
-  { xRange: [260, 360], y: 410, widthRange: [140, 180] },
-  { xRange: [150, 290], y: 325, widthRange: [125, 165] },
-  { xRange: [360, 540], y: 275, widthRange: [130, 180] },
-  { xRange: [640, 790], y: 390, widthRange: [130, 180] },
-  { xRange: [650, 800], y: 235, widthRange: [115, 155] },
-  { xRange: [430, 610], y: 170, widthRange: [110, 145] },
-  { xRange: [220, 410], y: 225, widthRange: [120, 160] },
-  { xRange: [95, 220], y: 145, widthRange: [110, 145] },
-  { xRange: [520, 700], y: 445, widthRange: [120, 165] },
-  { xRange: [720, 850], y: 335, widthRange: [110, 150] },
-  { xRange: [60, 175], y: 285, widthRange: [110, 145] },
-  { xRange: [500, 650], y: 350, widthRange: [120, 150] },
-  { xRange: [760, 865], y: 165, widthRange: [95, 125] },
-  { xRange: [300, 470], y: 120, widthRange: [110, 140] },
-  { xRange: [560, 760], y: 95, widthRange: [95, 130] }
+  { xRange: [50, 90], y: 420, yRange: [380, 460], widthRange: [170, 210] },
+  { xRange: [260, 360], y: 410, yRange: [370, 450], widthRange: [140, 180] },
+  { xRange: [150, 290], y: 325, yRange: [285, 365], widthRange: [125, 165] },
+  { xRange: [360, 540], y: 275, yRange: [235, 315], widthRange: [130, 180] },
+  { xRange: [640, 790], y: 390, yRange: [350, 430], widthRange: [130, 180] },
+  { xRange: [650, 800], y: 235, yRange: [195, 275], widthRange: [115, 155] },
+  { xRange: [430, 610], y: 170, yRange: [130, 210], widthRange: [110, 145] },
+  { xRange: [220, 410], y: 225, yRange: [185, 265], widthRange: [120, 160] },
+  { xRange: [95, 220], y: 145, yRange: [105, 185], widthRange: [110, 145] },
+  { xRange: [520, 700], y: 445, yRange: [405, 467], widthRange: [120, 165] },
+  { xRange: [720, 850], y: 335, yRange: [295, 375], widthRange: [110, 150] },
+  { xRange: [60, 175], y: 285, yRange: [245, 325], widthRange: [110, 145] },
+  { xRange: [500, 650], y: 350, yRange: [310, 390], widthRange: [120, 150] },
+  { xRange: [760, 865], y: 165, yRange: [125, 205], widthRange: [95, 125] },
+  { xRange: [300, 470], y: 120, yRange: [80, 160], widthRange: [110, 140] },
+  { xRange: [560, 760], y: 95, yRange: [80, 135], widthRange: [95, 130] }
 ];
 
 const input = {
   left: false,
   right: false,
   jump: false,
-  jumpPressed: false
+  jumpPressed: false,
+  crouch: false
 };
 
 let level;
@@ -48,6 +55,25 @@ let collectedCoins;
 let gameState;
 let lastTime = 0;
 let audioContext;
+let musicGainNode;
+let musicLoopTimeoutId;
+let sfxGainNode;
+
+let musicVolume = 1;
+let sfxVolume = 1;
+
+let cloudOffset = 0;
+const CLOUD_SPEED = 38;
+const CLOUD_WRAP = WIDTH + 400;
+
+const BPM = 180;
+const BEAT = 60 / BPM;
+const BAR = BEAT * 3;
+const MUSIC_LOOP_BARS = 8;
+const MUSIC_LOOP_DURATION = BAR * MUSIC_LOOP_BARS;
+
+const VOLUME_STORAGE_KEY_MUSIC = "blobCoinDash_musicVolume";
+const VOLUME_STORAGE_KEY_SFX = "blobCoinDash_sfxVolume";
 
 function getAudioContext() {
   if (!audioContext) {
@@ -61,6 +87,16 @@ function getAudioContext() {
   }
 
   return audioContext;
+}
+
+function getSfxGain(context) {
+  if (!context) return null;
+  if (!sfxGainNode) {
+    sfxGainNode = context.createGain();
+    sfxGainNode.gain.value = sfxVolume;
+    sfxGainNode.connect(context.destination);
+  }
+  return sfxGainNode;
 }
 
 function playSound({ frequency, duration, type, volume, endFrequency = frequency }) {
@@ -86,7 +122,9 @@ function playSound({ frequency, duration, type, volume, endFrequency = frequency
   gainNode.gain.exponentialRampToValueAtTime(0.0001, now + duration);
 
   oscillator.connect(gainNode);
-  gainNode.connect(context.destination);
+  const sfxGain = getSfxGain(context);
+  if (sfxGain) gainNode.connect(sfxGain);
+  else gainNode.connect(context.destination);
   oscillator.start(now);
   oscillator.stop(now + duration);
 }
@@ -131,6 +169,167 @@ function playSpikeDeathSound() {
   });
 }
 
+function playWinSound() {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  if (ctx.state === "suspended") ctx.resume();
+  const now = ctx.currentTime;
+  [440, 554, 659, 880].forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const t = now + i * 0.12;
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, t);
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(0.08, t + 0.02);
+    gain.gain.linearRampToValueAtTime(0, t + 0.2);
+    osc.connect(gain);
+    gain.connect(getSfxGain(ctx) || ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.2);
+  });
+}
+
+function playLoseSound() {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  if (ctx.state === "suspended") ctx.resume();
+  const now = ctx.currentTime;
+  const notes = [392, 349, 294, 262];
+  notes.forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const t = now + i * 0.18;
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, t);
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(0.07, t + 0.02);
+    gain.gain.linearRampToValueAtTime(0, t + 0.28);
+    osc.connect(gain);
+    gain.connect(getSfxGain(ctx) || ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.28);
+  });
+}
+
+function getMusicGain() {
+  const ctx = getAudioContext();
+  if (!ctx) return null;
+  if (!musicGainNode) {
+    musicGainNode = ctx.createGain();
+    musicGainNode.gain.value = 0.18 * musicVolume;
+    musicGainNode.connect(ctx.destination);
+  }
+  return musicGainNode;
+}
+
+function setMusicVolume(value) {
+  musicVolume = Math.max(0, Math.min(1, value));
+  if (musicGainNode) musicGainNode.gain.value = 0.18 * musicVolume;
+  try {
+    localStorage.setItem(VOLUME_STORAGE_KEY_MUSIC, String(musicVolume));
+  } catch (_) {}
+}
+
+function setSfxVolume(value) {
+  sfxVolume = Math.max(0, Math.min(1, value));
+  if (sfxGainNode) sfxGainNode.gain.value = sfxVolume;
+  try {
+    localStorage.setItem(VOLUME_STORAGE_KEY_SFX, String(sfxVolume));
+  } catch (_) {}
+}
+
+function scheduleBackgroundMusicLoop(startTime) {
+  const ctx = getAudioContext();
+  const gain = getMusicGain();
+  if (!ctx || !gain) return;
+
+  const bassRoots = [65.4, 98, 65.4, 87.3, 65.4, 98, 65.4, 65.4];
+  const melodyNotes = [
+    329.6, 392, 329.6,
+    261.6, 293.7, 329.6,
+    392, 329.6, 261.6,
+    329.6, 392, 392,
+    261.6, 329.6, 392,
+    329.6, 261.6, 261.6,
+    392, 392, 329.6,
+    261.6, 261.6, 261.6
+  ];
+
+  for (let bar = 0; bar < MUSIC_LOOP_BARS; bar += 1) {
+    const t0 = startTime + bar * BAR;
+    const root = bassRoots[bar];
+    const oscBass1 = ctx.createOscillator();
+    const oscBass2 = ctx.createOscillator();
+    const gainBass = ctx.createGain();
+    oscBass1.type = "square";
+    oscBass2.type = "square";
+    oscBass1.frequency.setValueAtTime(root, t0);
+    oscBass2.frequency.setValueAtTime(root * 1.5, t0);
+    gainBass.gain.setValueAtTime(0, t0);
+    gainBass.gain.linearRampToValueAtTime(0.2, t0 + 0.02);
+    gainBass.gain.linearRampToValueAtTime(0, t0 + BEAT * 2);
+    oscBass1.connect(gainBass);
+    oscBass2.connect(gainBass);
+    gainBass.connect(gain);
+    oscBass1.start(t0);
+    oscBass2.start(t0);
+    oscBass1.stop(t0 + BEAT * 2);
+    oscBass2.stop(t0 + BEAT * 2);
+
+    const t1 = t0 + BEAT;
+    const gainBass2 = ctx.createGain();
+    gainBass2.gain.setValueAtTime(0, t1);
+    gainBass2.gain.linearRampToValueAtTime(0.2, t1 + 0.02);
+    gainBass2.gain.linearRampToValueAtTime(0, t1 + BEAT * 2);
+    const ob1 = ctx.createOscillator();
+    const ob2 = ctx.createOscillator();
+    ob1.type = "square";
+    ob2.type = "square";
+    ob1.frequency.setValueAtTime(root, t1);
+    ob2.frequency.setValueAtTime(root * 1.5, t1);
+    ob1.connect(gainBass2);
+    ob2.connect(gainBass2);
+    gainBass2.connect(gain);
+    ob1.start(t1);
+    ob2.start(t1);
+    ob1.stop(t1 + BEAT * 2);
+    ob2.stop(t1 + BEAT * 2);
+  }
+
+  const noteLen = BEAT * 0.95;
+  melodyNotes.forEach((freq, i) => {
+    const bar = Math.floor(i / 3);
+    const beatInBar = i % 3;
+    const t = startTime + bar * BAR + beatInBar * BEAT;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = "square";
+    osc.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.12, t + 0.01);
+    g.gain.linearRampToValueAtTime(0, t + noteLen);
+    osc.connect(g);
+    g.connect(gain);
+    osc.start(t);
+    osc.stop(t + noteLen);
+  });
+}
+
+function startBackgroundMusic() {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  if (ctx.state === "suspended") ctx.resume();
+  let nextStart = ctx.currentTime;
+  scheduleBackgroundMusicLoop(nextStart);
+  function scheduleNext() {
+    nextStart += MUSIC_LOOP_DURATION;
+    scheduleBackgroundMusicLoop(nextStart);
+    musicLoopTimeoutId = setTimeout(scheduleNext, MUSIC_LOOP_DURATION * 1000);
+  }
+  musicLoopTimeoutId = setTimeout(scheduleNext, MUSIC_LOOP_DURATION * 1000);
+}
+
 function randomInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
@@ -146,19 +345,49 @@ function shuffle(items) {
   return copy;
 }
 
-function createPlatform(template) {
-  const width = randomInt(template.widthRange[0], template.widthRange[1]);
-  const maxX = Math.min(template.xRange[1], WIDTH - width - 20);
-  const x = randomInt(template.xRange[0], Math.max(template.xRange[0], maxX));
+function createPlatform(template, existingPlatforms) {
+  const overlaps = (a, b) =>
+    a.x < b.x + b.width &&
+    a.x + a.width > b.x &&
+    a.y < b.y + b.height &&
+    a.y + a.height > b.y;
+  const centerX = (p) => p.x + p.width / 2;
+  const centerY = (p) => p.y + p.height / 2;
+  const distance = (p, q) =>
+    Math.hypot(centerX(p) - centerX(q), centerY(p) - centerY(q));
+  const isWithinDistance = (platform) =>
+    existingPlatforms.some((other) => distance(platform, other) <= MAX_PLATFORM_DISTANCE);
 
-  return {
-    x,
-    y: template.y,
-    width,
-    height: 18,
-    type: "platform",
-    isSpawn: Boolean(template.isSpawn)
-  };
+  for (let attempt = 0; attempt < PLATFORM_PLACEMENT_ATTEMPTS; attempt += 1) {
+    const width = randomInt(template.widthRange[0], template.widthRange[1]);
+    const maxX = Math.min(template.xRange[1], WIDTH - width - 20);
+    const x = randomInt(template.xRange[0], Math.max(template.xRange[0], maxX));
+    const yMin = template.yRange ? template.yRange[0] : template.y;
+    const yMax = template.yRange ? template.yRange[1] : template.y;
+    const y = randomInt(
+      Math.max(PLATFORM_Y_MIN, yMin),
+      Math.min(PLATFORM_Y_MAX, yMax)
+    );
+
+    const platform = {
+      x,
+      y,
+      width,
+      height: 18,
+      type: "platform"
+    };
+
+    const overlapping = existingPlatforms.some((other) => overlaps(platform, other));
+    if (overlapping) continue;
+    if (overlaps(platform, SPAWN_RECT)) continue;
+    const gapAboveGround = GROUND_Y - (platform.y + platform.height);
+    if (gapAboveGround > 0 && gapAboveGround < CROUCH_HEIGHT) continue;
+    if (!isWithinDistance(platform)) continue;
+
+    return platform;
+  }
+
+  return null;
 }
 
 function getSpikesOnPlatform(platform, spikes) {
@@ -195,19 +424,21 @@ function getSafeSegments(platform, spikes) {
 }
 
 function createLevel() {
-  const spawnTemplate = PLATFORM_TEMPLATES.find((template) => template.isSpawn);
-  const otherTemplates = shuffle(PLATFORM_TEMPLATES.filter((template) => !template.isSpawn));
+  const allTemplates = shuffle([...PLATFORM_TEMPLATES]);
   const platformCount = randomInt(MIN_PLATFORM_COUNT, Math.min(MAX_PLATFORM_COUNT, PLATFORM_TEMPLATES.length));
-  const platforms = [
-    { x: 0, y: GROUND_Y, width: WIDTH, height: HEIGHT - GROUND_Y, type: "ground" },
-    createPlatform(spawnTemplate),
-    ...otherTemplates.slice(0, platformCount - 1).map(createPlatform)
-  ];
 
-  const spawnPlatform = platforms.find((platform) => platform.isSpawn);
+  const ground = { x: 0, y: GROUND_Y, width: WIDTH, height: HEIGHT - GROUND_Y, type: "ground" };
+  const platforms = [ground];
+
+  for (let i = 0; i < platformCount; i += 1) {
+    const template = allTemplates[i];
+    const platform = createPlatform(template, platforms);
+    if (platform) platforms.push(platform);
+  }
+
   const spikes = [];
 
-  for (const platform of shuffle(platforms.filter((entry) => entry.type === "platform" && !entry.isSpawn)).slice(0, 3)) {
+  for (const platform of shuffle(platforms.filter((entry) => entry.type === "platform")).slice(0, 3)) {
     const maxWidth = Math.min(62, platform.width - 36);
 
     if (maxWidth < 36) {
@@ -222,12 +453,20 @@ function createLevel() {
   return {
     groundY: GROUND_Y,
     spawn: {
-      x: spawnPlatform.x + 24,
-      y: spawnPlatform.y - PLAYER_SIZE
+      x: 80,
+      y: GROUND_Y - PLAYER_SIZE
     },
     platforms,
     spikes
   };
+}
+
+function slotOverlapsPlatform(slot, platform) {
+  const closestX = Math.max(platform.x, Math.min(slot.x, platform.x + platform.width));
+  const closestY = Math.max(platform.y, Math.min(slot.y, platform.y + platform.height));
+  const dx = slot.x - closestX;
+  const dy = slot.y - closestY;
+  return dx * dx + dy * dy < COIN_RADIUS * COIN_RADIUS;
 }
 
 function buildCoinSlots(currentLevel) {
@@ -235,9 +474,11 @@ function buildCoinSlots(currentLevel) {
   const overflowSlots = [];
 
   for (const platform of currentLevel.platforms) {
+    const isFloating = platform.type !== "ground";
     const spikes = getSpikesOnPlatform(platform, currentLevel.spikes);
+    if (!isFloating || spikes.length > 0) continue;
     const safeSegments = getSafeSegments(platform, spikes);
-    const baseY = platform.type === "ground" ? platform.y - 34 : platform.y - 28;
+    const baseY = platform.y - 28;
     const platformSlots = [];
 
     for (const segment of safeSegments) {
@@ -252,10 +493,16 @@ function buildCoinSlots(currentLevel) {
       }
     }
 
-    if (platformSlots.length > 0) {
-      const shuffledPlatformSlots = shuffle(platformSlots);
+    const validSlots = platformSlots.filter(
+      (slot) => !currentLevel.platforms.some((p) => slotOverlapsPlatform(slot, p))
+    );
+
+    if (validSlots.length > 0) {
+      const shuffledPlatformSlots = shuffle(validSlots);
       primarySlots.push(shuffledPlatformSlots[0]);
-      overflowSlots.push(...shuffledPlatformSlots.slice(1));
+      if (shuffledPlatformSlots.length > 1) {
+        overflowSlots.push(shuffledPlatformSlots[1]);
+      }
     }
   }
 
@@ -304,7 +551,8 @@ function resetGame() {
     vx: 0,
     vy: 0,
     onGround: false,
-    squish: 0
+    squish: 0,
+    crouching: false
   };
   respawnPlayer();
 }
@@ -318,8 +566,11 @@ function respawnPlayer() {
   player.vy = 0;
   player.onGround = false;
   player.squish = 1;
+  player.crouching = false;
+  player.height = PLAYER_SIZE;
   input.jump = false;
   input.jumpPressed = false;
+  input.crouch = false;
 }
 
 function getCollectedCoins() {
@@ -334,6 +585,7 @@ function killPlayer() {
   deaths += 1;
 
   if (deaths >= MAX_DEATHS) {
+    playLoseSound();
     gameState = "lost";
     return;
   }
@@ -342,14 +594,6 @@ function killPlayer() {
 }
 
 function clampPlayerToWorld() {
-  if (player.x < 0) {
-    player.x = 0;
-  }
-
-  if (player.x + player.width > WIDTH) {
-    player.x = WIDTH - player.width;
-  }
-
   if (player.y > HEIGHT + 100) {
     killPlayer();
   }
@@ -372,6 +616,21 @@ function circleIntersectsPlayer(circle) {
   return dx * dx + dy * dy < circle.radius * circle.radius;
 }
 
+function circleIntersectsRect(circle, rx, ry, rw, rh) {
+  const closestX = Math.max(rx, Math.min(circle.x, rx + rw));
+  const closestY = Math.max(ry, Math.min(circle.y, ry + rh));
+  const dx = circle.x - closestX;
+  const dy = circle.y - closestY;
+  return dx * dx + dy * dy < circle.radius * circle.radius;
+}
+
+function getPlayerRects() {
+  const rects = [{ x: player.x, y: player.y, width: player.width, height: player.height }];
+  if (player.x < 0) rects.push({ x: player.x + WIDTH, y: player.y, width: player.width, height: player.height });
+  if (player.x + player.width > WIDTH) rects.push({ x: player.x - WIDTH, y: player.y, width: player.width, height: player.height });
+  return rects;
+}
+
 function updatePlayer(dt) {
   if (gameState !== "playing") {
     player.vx = 0;
@@ -379,17 +638,36 @@ function updatePlayer(dt) {
   }
 
   const wasOnGround = player.onGround;
+  const bottom = player.y + player.height;
+
+  if (input.crouch && !player.crouching) {
+    player.crouching = true;
+    player.height = CROUCH_HEIGHT;
+    if (player.onGround) player.y = bottom - CROUCH_HEIGHT;
+  } else if (!input.crouch && player.crouching) {
+    if (player.onGround) {
+      const standY = bottom - PLAYER_SIZE;
+      const standingBox = { x: player.x, y: standY, width: player.width, height: PLAYER_SIZE };
+      const ceiling = level.platforms.some(
+        (p) => p.y < standY && rectsOverlap(standingBox, p)
+      );
+      if (!ceiling) {
+        player.crouching = false;
+        player.height = PLAYER_SIZE;
+        player.y = standY;
+      }
+    } else {
+      player.crouching = false;
+      player.height = PLAYER_SIZE;
+    }
+  }
+
   player.vx = 0;
+  const moveSpeed = player.crouching ? MOVE_SPEED * 0.5 : MOVE_SPEED;
+  if (input.left) player.vx -= moveSpeed;
+  if (input.right) player.vx += moveSpeed;
 
-  if (input.left) {
-    player.vx -= MOVE_SPEED;
-  }
-
-  if (input.right) {
-    player.vx += MOVE_SPEED;
-  }
-
-  if (input.jumpPressed && player.onGround) {
+  if (input.jumpPressed && player.onGround && !player.crouching) {
     player.vy = -JUMP_SPEED;
     player.onGround = false;
     player.squish = 1;
@@ -406,9 +684,13 @@ function updatePlayer(dt) {
     }
 
     if (player.vx > 0) {
-      player.x = platform.x - player.width;
+      const newX = platform.x - player.width;
+      if (player.x > WIDTH && newX <= WIDTH) continue;
+      player.x = newX;
     } else if (player.vx < 0) {
-      player.x = platform.x + platform.width;
+      const newX = platform.x + platform.width;
+      if (player.x + player.width < 0 && newX >= -player.width) continue;
+      player.x = newX;
     }
 
     horizontalBounds.x = player.x;
@@ -435,7 +717,21 @@ function updatePlayer(dt) {
     verticalBounds.y = player.y;
   }
 
+  const ground = level.platforms.find((p) => p.type === "ground");
+  if (ground && player.y + player.height > ground.y) {
+    player.y = ground.y - player.height;
+    player.vy = 0;
+    player.onGround = true;
+  }
+
   clampPlayerToWorld();
+
+  if (player.x + player.width <= -2) {
+    player.x += WIDTH;
+  } else if (player.x >= WIDTH + 2) {
+    player.x -= WIDTH;
+  }
+
   if (!wasOnGround && player.onGround && player.vy === 0) {
     playLandSound();
   }
@@ -448,7 +744,9 @@ function updateCoins(dt) {
   for (const coin of coins) {
     coin.bob += dt * 4;
 
-    if (!coin.collected && circleIntersectsPlayer(coin)) {
+    if (coin.collected) continue;
+    const rects = getPlayerRects();
+    if (rects.some((r) => circleIntersectsRect(coin, r.x, r.y, r.width, r.height))) {
       coin.collected = true;
       collectedCoins += 1;
       playCoinSound();
@@ -456,30 +754,34 @@ function updateCoins(dt) {
   }
 
   if (collectedCoins === TOTAL_COINS) {
+    playWinSound();
     gameState = "won";
   }
 }
 
 function updateSpikes() {
-  const hurtbox = {
-    x: player.x + 5,
-    y: player.y + 5,
-    width: player.width - 10,
-    height: player.height - 5
-  };
-
-  for (const spike of level.spikes) {
-    const spikeHitbox = {
-      x: spike.x,
-      y: spike.y - spike.height,
-      width: spike.width,
-      height: spike.height
+  const rects = getPlayerRects();
+  for (const r of rects) {
+    const hurtbox = {
+      x: r.x + 5,
+      y: r.y + 5,
+      width: r.width - 10,
+      height: r.height - 5
     };
 
-    if (rectsOverlap(hurtbox, spikeHitbox)) {
-      playSpikeDeathSound();
-      killPlayer();
-      return;
+    for (const spike of level.spikes) {
+      const spikeHitbox = {
+        x: spike.x,
+        y: spike.y - spike.height,
+        width: spike.width,
+        height: spike.height
+      };
+
+      if (rectsOverlap(hurtbox, spikeHitbox)) {
+        playSpikeDeathSound();
+        killPlayer();
+        return;
+      }
     }
   }
 }
@@ -493,16 +795,19 @@ function drawBackground() {
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
   ctx.fillStyle = "rgba(255,255,255,0.35)";
+  const wrap = (x) => ((x + cloudOffset) % CLOUD_WRAP) - 200;
+  const c1x = wrap(130);
   ctx.beginPath();
-  ctx.arc(130, 90, 40, 0, Math.PI * 2);
-  ctx.arc(165, 88, 30, 0, Math.PI * 2);
-  ctx.arc(200, 96, 24, 0, Math.PI * 2);
+  ctx.arc(c1x, 90, 40, 0, Math.PI * 2);
+  ctx.arc(c1x + 35, 88, 30, 0, Math.PI * 2);
+  ctx.arc(c1x + 70, 96, 24, 0, Math.PI * 2);
   ctx.fill();
 
+  const c2x = wrap(720);
   ctx.beginPath();
-  ctx.arc(720, 80, 32, 0, Math.PI * 2);
-  ctx.arc(752, 72, 24, 0, Math.PI * 2);
-  ctx.arc(783, 82, 20, 0, Math.PI * 2);
+  ctx.arc(c2x, 80, 32, 0, Math.PI * 2);
+  ctx.arc(c2x + 32, 72, 24, 0, Math.PI * 2);
+  ctx.arc(c2x + 63, 82, 20, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.fillStyle = "#71bb5e";
@@ -558,11 +863,13 @@ function drawCoins() {
   }
 }
 
-function drawPlayer() {
+function drawPlayer(offsetX, offsetY) {
+  offsetX = offsetX ?? 0;
+  offsetY = offsetY ?? 0;
   const squashX = 1 + player.squish * 0.25;
   const squashY = 1 - player.squish * 0.2;
-  const centerX = player.x + player.width / 2;
-  const centerY = player.y + player.height / 2;
+  const centerX = player.x + player.width / 2 + offsetX;
+  const centerY = player.y + player.height / 2 + offsetY;
 
   ctx.save();
   ctx.translate(centerX, centerY);
@@ -573,10 +880,12 @@ function drawPlayer() {
   ctx.ellipse(0, 0, player.width / 2, player.height / 2, 0, 0, Math.PI * 2);
   ctx.fill();
 
+  const eyeY = player.crouching ? 2 : -3;
+  const eyeR = player.crouching ? 2.5 : 3.5;
   ctx.fillStyle = "#173927";
   ctx.beginPath();
-  ctx.arc(-7, -3, 3.5, 0, Math.PI * 2);
-  ctx.arc(7, -3, 3.5, 0, Math.PI * 2);
+  ctx.arc(-7, eyeY, eyeR, 0, Math.PI * 2);
+  ctx.arc(7, eyeY, eyeR, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.strokeStyle = "#173927";
@@ -623,6 +932,7 @@ function drawOverlay() {
 }
 
 function update(dt) {
+  cloudOffset += dt * CLOUD_SPEED;
   updatePlayer(dt);
 
   if (gameState === "playing") {
@@ -636,6 +946,12 @@ function render() {
   drawPlatforms();
   drawCoins();
   drawSpikes();
+  if (player.x + player.width > WIDTH) {
+    drawPlayer(-WIDTH, 0);
+  }
+  if (player.x < 0) {
+    drawPlayer(WIDTH, 0);
+  }
   drawPlayer();
   drawHud();
   drawOverlay();
@@ -670,6 +986,10 @@ function setKeyState(code, pressed) {
 
     input.jump = pressed;
   }
+
+  if (code === "ArrowDown" || code === "KeyS") {
+    input.crouch = pressed;
+  }
 }
 
 window.addEventListener("keydown", (event) => {
@@ -678,7 +998,7 @@ window.addEventListener("keydown", (event) => {
     return;
   }
 
-  if (["ArrowLeft", "ArrowRight", "ArrowUp", "Space"].includes(event.code)) {
+  if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space", "KeyS"].includes(event.code)) {
     event.preventDefault();
   }
 
@@ -690,4 +1010,35 @@ window.addEventListener("keyup", (event) => {
 });
 
 resetGame();
+
+(function initVolumeSettings() {
+  try {
+    const m = localStorage.getItem(VOLUME_STORAGE_KEY_MUSIC);
+    if (m != null) {
+      const v = parseFloat(m);
+      if (!Number.isNaN(v)) musicVolume = Math.max(0, Math.min(1, v));
+    }
+    const s = localStorage.getItem(VOLUME_STORAGE_KEY_SFX);
+    if (s != null) {
+      const v = parseFloat(s);
+      if (!Number.isNaN(v)) sfxVolume = Math.max(0, Math.min(1, v));
+    }
+  } catch (_) {}
+  const musicSlider = document.getElementById("music-volume");
+  const sfxSlider = document.getElementById("sfx-volume");
+  if (musicSlider) {
+    musicSlider.value = String(Math.round(musicVolume * 100));
+    musicSlider.addEventListener("input", function () {
+      setMusicVolume(parseInt(this.value, 10) / 100);
+    });
+  }
+  if (sfxSlider) {
+    sfxSlider.value = String(Math.round(sfxVolume * 100));
+    sfxSlider.addEventListener("input", function () {
+      setSfxVolume(parseInt(this.value, 10) / 100);
+    });
+  }
+})();
+
+startBackgroundMusic();
 requestAnimationFrame(gameLoop);

@@ -60,6 +60,37 @@ canvas {
   flex-wrap: wrap;
 }
 
+.settings {
+  margin-top: 20px;
+  padding: 16px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.settings h2 {
+  margin: 0 0 12px;
+  font-size: 1.1rem;
+  color: #c9d7ff;
+}
+
+.settings label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 0.95rem;
+  color: #dce6ff;
+}
+
+.settings label span {
+  min-width: 110px;
+}
+
+.settings input[type="range"] {
+  width: 160px;
+  height: 6px;
+  accent-color: #53d58d;
+}
+
 @media (max-width: 768px) {
   .hud,
   .legend {
