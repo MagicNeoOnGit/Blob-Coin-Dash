@@ -8,6 +8,7 @@ const MOVE_SPEED = 290;
 const JUMP_SPEED = 700;
 const TOTAL_COINS = 10;
 const MAX_DEATHS = 3;
+const LEVEL_TIME_SECONDS = 3 * 60 + 1;
 const GROUND_Y = 492;
 const PLAYER_SIZE = 36;
 const CROUCH_HEIGHT = 24;
@@ -19,6 +20,17 @@ const PLATFORM_PLACEMENT_ATTEMPTS = 40;
 const PLATFORM_Y_MIN = 80;
 const PLATFORM_Y_MAX = GROUND_Y - 25;
 const SPAWN_RECT = { x: 80, y: GROUND_Y - PLAYER_SIZE, width: PLAYER_SIZE, height: PLAYER_SIZE };
+
+const BEETLE_WIDTH = 34;
+const BEETLE_HEIGHT = 36;
+const BEETLE_CHASE_SPEED = MOVE_SPEED * 0.5;
+const BEETLE_SPEED = BEETLE_CHASE_SPEED / 3;
+const BEETLE_SPAWN_RECT = {
+  x: WIDTH - SPAWN_RECT.x - BEETLE_WIDTH,
+  y: GROUND_Y - BEETLE_HEIGHT - 8,
+  width: BEETLE_WIDTH,
+  height: BEETLE_HEIGHT
+};
 
 const PLATFORM_TEMPLATES = [
   { xRange: [50, 90], y: 420, yRange: [380, 460], widthRange: [170, 210] },
@@ -39,6 +51,20 @@ const PLATFORM_TEMPLATES = [
   { xRange: [560, 760], y: 95, yRange: [80, 135], widthRange: [95, 130] }
 ];
 
+const COIN_PLATFORM_TEMPLATE = {
+  xRange: [100, WIDTH - 120],
+  y: 300,
+  yRange: [PLATFORM_Y_MIN, PLATFORM_Y_MAX],
+  widthRange: [56, 80]
+};
+
+const SPIKES_PLATFORM_TEMPLATE = {
+  xRange: [120, WIDTH - 140],
+  y: 350,
+  yRange: [PLATFORM_Y_MIN, PLATFORM_Y_MAX],
+  widthRange: [90, 140]
+};
+
 const input = {
   left: false,
   right: false,
@@ -53,6 +79,8 @@ let coins;
 let deaths;
 let collectedCoins;
 let gameState;
+let levelTimeRemaining;
+let lostReason;
 let lastTime = 0;
 let audioContext;
 let musicGainNode;
@@ -346,17 +374,27 @@ function shuffle(items) {
 }
 
 function createPlatform(template, existingPlatforms) {
+  const tolerance = 2;
   const overlaps = (a, b) =>
-    a.x < b.x + b.width &&
-    a.x + a.width > b.x &&
-    a.y < b.y + b.height &&
-    a.y + a.height > b.y;
+    a.x < b.x + b.width + tolerance &&
+    a.x + a.width + tolerance > b.x &&
+    a.y < b.y + b.height + tolerance &&
+    a.y + a.height + tolerance > b.y;
+  const overlapsX = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x;
+  const crouchGap = (above, below) => below.y - (above.y + above.height);
   const centerX = (p) => p.x + p.width / 2;
   const centerY = (p) => p.y + p.height / 2;
   const distance = (p, q) =>
     Math.hypot(centerX(p) - centerX(q), centerY(p) - centerY(q));
   const isWithinDistance = (platform) =>
     existingPlatforms.some((other) => distance(platform, other) <= MAX_PLATFORM_DISTANCE);
+  const hasEnoughCrouchGap = (platform) =>
+    !existingPlatforms.some((other) => {
+      if (!overlapsX(platform, other)) return false;
+      if (overlaps(platform, other)) return false;
+      const gap = platform.y < other.y ? crouchGap(platform, other) : crouchGap(other, platform);
+      return gap > 0 && gap < CROUCH_HEIGHT;
+    });
 
   for (let attempt = 0; attempt < PLATFORM_PLACEMENT_ATTEMPTS; attempt += 1) {
     const width = randomInt(template.widthRange[0], template.widthRange[1]);
@@ -380,8 +418,10 @@ function createPlatform(template, existingPlatforms) {
     const overlapping = existingPlatforms.some((other) => overlaps(platform, other));
     if (overlapping) continue;
     if (overlaps(platform, SPAWN_RECT)) continue;
+    if (overlaps(platform, BEETLE_SPAWN_RECT)) continue;
     const gapAboveGround = GROUND_Y - (platform.y + platform.height);
     if (gapAboveGround > 0 && gapAboveGround < CROUCH_HEIGHT) continue;
+    if (!hasEnoughCrouchGap(platform)) continue;
     if (!isWithinDistance(platform)) continue;
 
     return platform;
@@ -438,7 +478,9 @@ function createLevel() {
 
   const spikes = [];
 
-  for (const platform of shuffle(platforms.filter((entry) => entry.type === "platform")).slice(0, 3)) {
+  const MIN_SPIKE_PLATFORMS = 3;
+  const maxSpiked = Math.max(0, platforms.filter((p) => p.type === "platform").length - TOTAL_COINS);
+  for (const platform of shuffle(platforms.filter((entry) => entry.type === "platform")).slice(0, maxSpiked)) {
     const maxWidth = Math.min(62, platform.width - 36);
 
     if (maxWidth < 36) {
@@ -450,6 +492,18 @@ function createLevel() {
     spikes.push({ x, y: platform.y, width, height: 20 });
   }
 
+  while (spikes.length < MIN_SPIKE_PLATFORMS) {
+    const spikePlatform = createPlatform(SPIKES_PLATFORM_TEMPLATE, platforms);
+    if (!spikePlatform) break;
+    platforms.push(spikePlatform);
+    const maxWidth = Math.min(62, spikePlatform.width - 36);
+    if (maxWidth >= 36) {
+      const width = randomInt(36, maxWidth);
+      const x = randomInt(spikePlatform.x + 16, spikePlatform.x + spikePlatform.width - width - 16);
+      spikes.push({ x, y: spikePlatform.y, width, height: 20 });
+    }
+  }
+
   return {
     groundY: GROUND_Y,
     spawn: {
@@ -457,7 +511,22 @@ function createLevel() {
       y: GROUND_Y - PLAYER_SIZE
     },
     platforms,
-    spikes
+    spikes,
+    beetle: createBeetle()
+  };
+}
+
+function createBeetle() {
+  const x = BEETLE_SPAWN_RECT.x;
+  const vx = Math.random() < 0.5 ? BEETLE_SPEED : -BEETLE_SPEED;
+  return {
+    x,
+    y: BEETLE_SPAWN_RECT.y,
+    width: BEETLE_WIDTH,
+    height: BEETLE_HEIGHT,
+    vx,
+    leftBound: 0,
+    rightBound: WIDTH
   };
 }
 
@@ -470,8 +539,7 @@ function slotOverlapsPlatform(slot, platform) {
 }
 
 function buildCoinSlots(currentLevel) {
-  const primarySlots = [];
-  const overflowSlots = [];
+  const slots = [];
 
   for (const platform of currentLevel.platforms) {
     const isFloating = platform.type !== "ground";
@@ -484,13 +552,7 @@ function buildCoinSlots(currentLevel) {
     for (const segment of safeSegments) {
       const width = segment.end - segment.start;
       const center = (segment.start + segment.end) / 2;
-
       platformSlots.push({ x: center, y: baseY });
-
-      if (width > 84) {
-        platformSlots.push({ x: segment.start + width * 0.3, y: baseY - 6 });
-        platformSlots.push({ x: segment.start + width * 0.7, y: baseY - 6 });
-      }
     }
 
     const validSlots = platformSlots.filter(
@@ -498,18 +560,12 @@ function buildCoinSlots(currentLevel) {
     );
 
     if (validSlots.length > 0) {
-      const shuffledPlatformSlots = shuffle(validSlots);
-      primarySlots.push(shuffledPlatformSlots[0]);
-      if (shuffledPlatformSlots.length > 1) {
-        overflowSlots.push(shuffledPlatformSlots[1]);
-      }
+      const pick = shuffle(validSlots)[0];
+      slots.push(pick);
     }
   }
 
-  return {
-    primary: shuffle(primarySlots),
-    overflow: shuffle(overflowSlots)
-  };
+  return shuffle(slots);
 }
 
 function slotIntersectsSpawn(slot, currentLevel) {
@@ -522,12 +578,16 @@ function slotIntersectsSpawn(slot, currentLevel) {
 }
 
 function createCoinsForLevel(currentLevel, remainingCoins) {
-  const slotGroups = buildCoinSlots(currentLevel);
-  const slots = slotGroups.primary.filter((slot) => !slotIntersectsSpawn(slot, currentLevel));
+  let slots = buildCoinSlots(currentLevel).filter((slot) => !slotIntersectsSpawn(slot, currentLevel));
 
-  if (slots.length < remainingCoins) {
-    const validOverflowSlots = slotGroups.overflow.filter((slot) => !slotIntersectsSpawn(slot, currentLevel));
-    slots.push(...validOverflowSlots.slice(0, remainingCoins - slots.length));
+  while (slots.length < remainingCoins) {
+    const platform = createPlatform(COIN_PLATFORM_TEMPLATE, currentLevel.platforms);
+    if (!platform) break;
+    currentLevel.platforms.push(platform);
+    const slot = { x: platform.x + platform.width / 2, y: platform.y - 28 };
+    if (!slotIntersectsSpawn(slot, currentLevel) && !currentLevel.platforms.some((p) => slotOverlapsPlatform(slot, p))) {
+      slots.push(slot);
+    }
   }
 
   return slots.slice(0, remainingCoins).map((slot) => ({
@@ -542,6 +602,7 @@ function createCoinsForLevel(currentLevel, remainingCoins) {
 function resetGame() {
   collectedCoins = 0;
   deaths = 0;
+  levelTimeRemaining = LEVEL_TIME_SECONDS;
   gameState = "playing";
   player = {
     x: 0,
@@ -585,6 +646,7 @@ function killPlayer() {
   deaths += 1;
 
   if (deaths >= MAX_DEATHS) {
+    lostReason = "deaths";
     playLoseSound();
     gameState = "lost";
     return;
@@ -759,6 +821,62 @@ function updateCoins(dt) {
   }
 }
 
+function getBeetleRects() {
+  const b = level.beetle;
+  if (!b) return [];
+  const rects = [{ x: b.x, y: b.y, width: b.width, height: b.height }];
+  if (b.x + b.width > WIDTH) rects.push({ x: b.x - WIDTH, y: b.y, width: b.width, height: b.height });
+  if (b.x < 0) rects.push({ x: b.x + WIDTH, y: b.y, width: b.width, height: b.height });
+  return rects;
+}
+
+function updateBeetle(dt) {
+  const b = level.beetle;
+  if (!b) return;
+  const onGroundLevel = player.onGround && (player.y + player.height) >= GROUND_Y - 2;
+  if (gameState === "playing" && onGroundLevel) {
+    const beetleCx = b.x + b.width / 2;
+    const playerCx = player.x + player.width / 2;
+    const dx = playerCx - beetleCx;
+    b.vx = dx > 0 ? BEETLE_CHASE_SPEED : dx < 0 ? -BEETLE_CHASE_SPEED : b.vx;
+  } else if (gameState === "playing") {
+    b.vx = b.vx >= 0 ? BEETLE_SPEED : -BEETLE_SPEED;
+  }
+  b.x += b.vx * dt;
+  if (onGroundLevel) {
+    if (b.x <= 0) {
+      b.x = 0;
+      b.vx = -b.vx;
+    }
+    if (b.x + b.width >= WIDTH) {
+      b.x = WIDTH - b.width;
+      b.vx = -b.vx;
+    }
+  } else {
+    if (b.x >= WIDTH) b.x -= WIDTH;
+    if (b.x + b.width <= 0) b.x += WIDTH;
+  }
+  if (!onGroundLevel && !b.isDigging) {
+    for (const rect of getBeetleRects()) {
+      for (const platform of level.platforms) {
+        if (platform.type !== "platform") continue;
+        if (rectsOverlap(rect, platform)) {
+          b.vx = -b.vx;
+          b.x += b.vx * dt;
+          if (b.x >= WIDTH) b.x -= WIDTH;
+          if (b.x + b.width <= 0) b.x += WIDTH;
+          return;
+        }
+      }
+    }
+  }
+  const beetleRect = { x: b.x, y: b.y, width: b.width, height: b.height };
+  const overlappingPlatform = level.platforms.some(
+    (p) => p.type === "platform" && rectsOverlap(beetleRect, p)
+  );
+  b.isDigging = overlappingPlatform && (onGroundLevel || b.isDigging);
+}
+
 function updateSpikes() {
   const rects = getPlayerRects();
   for (const r of rects) {
@@ -778,6 +896,14 @@ function updateSpikes() {
       };
 
       if (rectsOverlap(hurtbox, spikeHitbox)) {
+        playSpikeDeathSound();
+        killPlayer();
+        return;
+      }
+    }
+
+    for (const beetleRect of getBeetleRects()) {
+      if (rectsOverlap(hurtbox, beetleRect)) {
         playSpikeDeathSound();
         killPlayer();
         return;
@@ -846,6 +972,146 @@ function drawSpikes() {
   }
 }
 
+function drawBeetle(offsetX, offsetY) {
+  offsetX = offsetX ?? 0;
+  offsetY = offsetY ?? 0;
+  const b = level.beetle;
+  if (!b) return;
+  const cx = b.x + b.width / 2 + offsetX;
+  const cy = b.y + b.height / 2 + offsetY;
+  const facing = b.vx >= 0 ? 1 : -1;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  if (facing < 0) ctx.scale(-1, 1);
+
+  const halfW = b.width / 2;
+  const halfH = b.height / 2;
+
+  const t = Date.now() / 120;
+  const legWave = (b.isDigging ? 0.4 : 0.15) * Math.sin(t);
+
+  if (b.isDigging) {
+    const tt = Date.now() * 0.012;
+    for (let i = 0; i < 8; i += 1) {
+      const phase = (i / 8) * Math.PI * 2 + tt * 0.7;
+      const rise = (Math.sin(tt + i * 1.3) * 0.5 + 0.5) * 14 + 4;
+      const side = (i % 2 === 0 ? 1 : -1) * (halfW * 0.4 + (i % 3) * 6 + Math.sin(tt + i) * 4);
+      const size = 3 + (i % 3) * 1.5 + Math.sin(tt * 2 + i) * 1;
+      ctx.fillStyle = `rgba(94, 69, 64, ${0.85 - rise / 24})`;
+      ctx.beginPath();
+      ctx.ellipse(side, halfH + 4 - rise, size, size * 1.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = "rgba(94, 69, 64, 0.4)";
+    ctx.fillRect(-halfW - 4, halfH - 2, b.width + 8, 10);
+  }
+
+  function leg(side, along, phase) {
+    const x = along * halfW * 0.85;
+    const y = halfH * 0.4;
+    const out = side * (halfW * 0.5 + 4);
+    const kneeOut = side * (halfW * 0.7 + 6);
+    const footOut = side * (halfW * 0.75 + 8);
+    const wave = legWave * phase;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + out + wave * 20, y + 6);
+    ctx.lineTo(x + kneeOut + wave * 28, y + halfH * 0.6);
+    ctx.lineTo(x + footOut + wave * 30, y + halfH + 2);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = "#3d0a0a";
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  leg(1, -0.6, 1);
+  leg(1, 0, 0.7);
+  leg(1, 0.6, 0.3);
+  leg(-1, -0.6, 0.8);
+  leg(-1, 0, 0.5);
+  leg(-1, 0.6, 0.2);
+
+  ctx.fillStyle = "#5c0000";
+  ctx.beginPath();
+  ctx.ellipse(0.35 * halfW, 0, halfW * 0.32, halfH * 0.9, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#4a0808";
+  ctx.beginPath();
+  ctx.ellipse(-0.5 * halfW, 0, halfW * 0.38, halfH * 0.88, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#6b1010";
+  ctx.beginPath();
+  ctx.ellipse(-halfW * 0.15, 0, halfW * 0.4, halfH * 0.82, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#3d0a0a";
+  ctx.beginPath();
+  ctx.ellipse(0, -halfH * 0.1, halfW * 0.92, halfH * 0.55, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#2d0000";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, -halfH * 0.5);
+  ctx.lineTo(0, halfH * 0.5);
+  ctx.stroke();
+
+  const headX = halfW * 0.72;
+  ctx.fillStyle = "#5c0000";
+  ctx.beginPath();
+  ctx.ellipse(headX, 0, halfW * 0.28, halfH * 0.75, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#2d0000";
+  ctx.beginPath();
+  ctx.arc(headX - 4, -4, 5, 0, Math.PI * 2);
+  ctx.arc(headX + 5, -3, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#1a0505";
+  ctx.beginPath();
+  ctx.arc(headX - 4, -4, 2, 0, Math.PI * 2);
+  ctx.arc(headX + 5, -3, 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#8b0000";
+  ctx.beginPath();
+  ctx.arc(headX - 4, -4, 1.2, 0, Math.PI * 2);
+  ctx.arc(headX + 5, -3, 1.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "#2d0000";
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(headX + 6, -2);
+  ctx.lineTo(headX + 14, -6);
+  ctx.lineTo(headX + 18, -8);
+  ctx.moveTo(headX + 6, 2);
+  ctx.lineTo(headX + 12, 4);
+  ctx.lineTo(headX + 16, 6);
+  ctx.moveTo(headX - 6, -2);
+  ctx.lineTo(headX - 14, -6);
+  ctx.lineTo(headX - 18, -8);
+  ctx.moveTo(headX - 6, 2);
+  ctx.lineTo(headX - 12, 4);
+  ctx.lineTo(headX - 16, 6);
+  ctx.stroke();
+
+  ctx.fillStyle = "#2d0000";
+  ctx.beginPath();
+  ctx.moveTo(headX + halfW * 0.22, 0);
+  ctx.lineTo(headX + halfW * 0.35, -3);
+  ctx.lineTo(headX + halfW * 0.35, 3);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(headX + halfW * 0.22, 0);
+  ctx.lineTo(headX + halfW * 0.32, -2);
+  ctx.lineTo(headX + halfW * 0.32, 2);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore();
+}
+
 function drawCoins() {
   for (const coin of coins) {
     if (coin.collected) {
@@ -897,14 +1163,29 @@ function drawPlayer(offsetX, offsetY) {
   ctx.restore();
 }
 
+function formatTime(seconds) {
+  const m = Math.floor(Math.max(0, seconds) / 60);
+  const s = Math.floor(Math.max(0, seconds) % 60);
+  return `${m}:${s < 10 ? "0" : ""}${s}`;
+}
+
 function drawHud() {
   ctx.fillStyle = "rgba(16, 25, 47, 0.72)";
   ctx.fillRect(18, 18, 220, 86);
 
   ctx.fillStyle = "#ffffff";
   ctx.font = "bold 24px Arial";
+  ctx.textAlign = "start";
   ctx.fillText(`Coins: ${getCollectedCoins()}/${TOTAL_COINS}`, 32, 50);
   ctx.fillText(`Deaths: ${deaths}/${MAX_DEATHS}`, 32, 84);
+
+  ctx.fillStyle = "rgba(16, 25, 47, 0.72)";
+  ctx.fillRect(WIDTH - 88, 18, 70, 40);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 24px Arial";
+  ctx.textAlign = "right";
+  ctx.fillText(formatTime(levelTimeRemaining), WIDTH - 24, 48);
+  ctx.textAlign = "start";
 }
 
 function drawOverlay() {
@@ -924,7 +1205,11 @@ function drawOverlay() {
   if (gameState === "won") {
     ctx.fillText("The blob grabbed all 10 coins.", WIDTH / 2, 260);
   } else {
-    ctx.fillText("The blob died 3 times and lost the run.", WIDTH / 2, 260);
+    ctx.fillText(
+      lostReason === "time" ? "Time ran out." : "The blob died 3 times and lost the run.",
+      WIDTH / 2,
+      260
+    );
   }
 
   ctx.fillText("Press R to restart.", WIDTH / 2, 310);
@@ -936,7 +1221,15 @@ function update(dt) {
   updatePlayer(dt);
 
   if (gameState === "playing") {
+    levelTimeRemaining -= dt;
+    if (levelTimeRemaining <= 0) {
+      levelTimeRemaining = 0;
+      lostReason = "time";
+      playLoseSound();
+      gameState = "lost";
+    }
     updateCoins(dt);
+    updateBeetle(dt);
     updateSpikes();
   }
 }
@@ -946,6 +1239,11 @@ function render() {
   drawPlatforms();
   drawCoins();
   drawSpikes();
+  if (level.beetle) {
+    if (level.beetle.x + level.beetle.width > WIDTH) drawBeetle(-WIDTH, 0);
+    if (level.beetle.x < 0) drawBeetle(WIDTH, 0);
+  }
+  drawBeetle();
   if (player.x + player.width > WIDTH) {
     drawPlayer(-WIDTH, 0);
   }
