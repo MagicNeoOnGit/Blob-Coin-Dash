@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@400;600;700&family=Permanent+Marker&display=swap" rel="stylesheet">
 </head>
 <body>
   <main class="game-shell">
@@ -25,6 +25,18 @@
     </section>
 
     <canvas id="game" width="960" height="540" aria-label="Platformer game"></canvas>
+
+    <div class="mobile-controls" aria-label="Mobile controls">
+      <div class="mobile-controls-left">
+        <button type="button" class="mobile-btn mobile-btn-left" aria-label="Move left">←</button>
+        <button type="button" class="mobile-btn mobile-btn-right" aria-label="Move right">→</button>
+      </div>
+      <div class="mobile-controls-right">
+        <button type="button" class="mobile-btn mobile-btn-crouch" aria-label="Crouch">↓</button>
+        <button type="button" class="mobile-btn mobile-btn-jump" aria-label="Jump">↑</button>
+        <button type="button" class="mobile-btn mobile-btn-restart" aria-label="Restart">R</button>
+      </div>
+    </div>
 
     <section class="legend">
       <span><strong>Blob:</strong> you</span>
@@ -47,8 +59,9 @@
     <section class="settings" aria-label="Theme">
       <h2>Theme</h2>
       <div class="theme-buttons">
-        <button type="button" id="theme-normal" aria-pressed="true">Normal</button>
+        <button type="button" id="theme-classic" aria-pressed="true">Classic</button>
         <button type="button" id="theme-orange">GS</button>
+        <button type="button" id="theme-backrooms">Backrooms</button>
       </div>
     </section>
   </main>

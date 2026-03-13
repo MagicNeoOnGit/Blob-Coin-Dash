@@ -5,13 +5,17 @@
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: sans-serif;
   background: linear-gradient(180deg, #10192f 0%, #18294f 100%);
   color: #eef4ff;
 }
 
 body.theme-orange {
-  font-family: "Exo 2", Arial, sans-serif;
+  font-family: "Exo 2", sans-serif;
+}
+
+body.theme-backrooms {
+  font-family: "Builder Marker", "Permanent Marker", sans-serif;
 }
 
 .game-shell {
@@ -119,6 +123,63 @@ canvas {
 .theme-buttons button[aria-pressed="true"] {
   background: #53d58d;
   color: #0d1f14;
+}
+
+/* Mobile controls: hidden on desktop */
+.mobile-controls {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .mobile-controls {
+    display: flex;
+    position: fixed;
+    bottom: 16px;
+    left: 12px;
+    right: 12px;
+    justify-content: space-between;
+    align-items: center;
+    pointer-events: none;
+    z-index: 20;
+  }
+
+  .mobile-controls > * {
+    pointer-events: auto;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .mobile-btn {
+    width: 52px;
+    height: 52px;
+    min-width: 52px;
+    min-height: 52px;
+    padding: 0;
+    font-size: 1.5rem;
+    font-family: inherit;
+    color: rgba(255, 255, 255, 0.95);
+    background: rgba(0, 0, 0, 0.35);
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    border-radius: 12px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    user-select: none;
+  }
+
+  .mobile-btn:active {
+    background: rgba(255, 255, 255, 0.25);
+    border-color: rgba(255, 255, 255, 0.5);
+  }
+
+  .mobile-btn-jump {
+    width: 64px;
+    height: 64px;
+    min-width: 64px;
+    min-height: 64px;
+    font-size: 1.75rem;
+  }
 }
 
 @media (max-width: 768px) {

@@ -81,6 +81,7 @@ let collectedCoins;
 let gameState;
 let levelTimeRemaining;
 let lostReason;
+let lastDeathCause = null;
 let bellAt16Played = false;
 let lastTime = 0;
 let audioContext;
@@ -105,10 +106,12 @@ const VOLUME_STORAGE_KEY_MUSIC = "blobCoinDash_musicVolume";
 const VOLUME_STORAGE_KEY_SFX = "blobCoinDash_sfxVolume";
 const THEME_STORAGE_KEY = "blobCoinDash_theme";
 
-let platformTheme = "normal";
+let platformTheme = "classic";
 
 const arrowImage = new Image();
 arrowImage.src = "arrow.png";
+const bottleImage = new Image();
+bottleImage.src = "bottle.png";
 
 function getAudioContext() {
   if (!audioContext) {
@@ -629,6 +632,7 @@ function resetGame() {
   deaths = 0;
   levelTimeRemaining = LEVEL_TIME_SECONDS;
   bellAt16Played = false;
+  lastDeathCause = null;
   gameState = "playing";
   player = {
     x: 0,
@@ -755,8 +759,9 @@ function updatePlayer(dt) {
   if (input.left) player.vx -= moveSpeed;
   if (input.right) player.vx += moveSpeed;
 
-  if (input.jumpPressed && player.onGround && !player.crouching) {
-    player.vy = -JUMP_SPEED;
+  if (input.jumpPressed && player.onGround) {
+    const jumpSpeed = player.crouching ? JUMP_SPEED * 0.88 : JUMP_SPEED;
+    player.vy = -jumpSpeed;
     player.onGround = false;
     player.squish = 1;
     playJumpSound();
@@ -922,6 +927,7 @@ function updateSpikes() {
       };
 
       if (rectsOverlap(hurtbox, spikeHitbox)) {
+        lastDeathCause = "spikes";
         playSpikeDeathSound();
         killPlayer();
         return;
@@ -930,6 +936,7 @@ function updateSpikes() {
 
     for (const beetleRect of getBeetleRects()) {
       if (rectsOverlap(hurtbox, beetleRect)) {
+        lastDeathCause = "beetle";
         playSpikeDeathSound();
         killPlayer();
         return;
@@ -939,6 +946,39 @@ function updateSpikes() {
 }
 
 function drawBackground() {
+  if (platformTheme === "backrooms") {
+    const backroomsBg = ctx.createLinearGradient(0, 0, 0, HEIGHT);
+    backroomsBg.addColorStop(0, "#d4c84c");
+    backroomsBg.addColorStop(0.4, "#e0d460");
+    backroomsBg.addColorStop(1, "#c4b038");
+    ctx.fillStyle = backroomsBg;
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+    const roomWidth = 220;
+    for (let i = -2; i <= Math.ceil(WIDTH / roomWidth) + 1; i += 1) {
+      const rx = i * roomWidth;
+      ctx.fillStyle = "rgba(0, 0, 0, 0.06)";
+      ctx.fillRect(rx, 0, 3, HEIGHT);
+      ctx.fillStyle = i % 2 === 0 ? "rgba(255, 255, 220, 0.15)" : "rgba(200, 190, 100, 0.12)";
+      ctx.fillRect(rx + 3, 0, roomWidth - 3, HEIGHT);
+    }
+
+    const lightSpacing = 180;
+    for (let L = -1; L <= Math.ceil(WIDTH / lightSpacing) + 2; L += 1) {
+      const lx = L * lightSpacing;
+      ctx.fillStyle = "rgba(255, 255, 240, 0.5)";
+      ctx.fillRect(lx, 28, 140, 14);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
+      ctx.fillRect(lx + 4, 30, 132, 10);
+      ctx.fillStyle = "rgba(255, 248, 200, 0.4)";
+      ctx.fillRect(lx, 42, 140, 25);
+    }
+
+    ctx.fillStyle = "#4a4a48";
+    ctx.fillRect(0, level.groundY - 12, WIDTH, 12);
+    return;
+  }
+
   if (platformTheme === "orange") {
     const factorySky = ctx.createLinearGradient(0, 0, 0, HEIGHT);
     factorySky.addColorStop(0, "#4a4a4a");
@@ -1003,7 +1043,7 @@ function drawBackground() {
   ctx.arc(c2x + 63, 82, 20, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.fillStyle = "#71bb5e";
+  ctx.fillStyle = platformTheme === "backrooms" ? "#4a4a48" : "#71bb5e";
   ctx.fillRect(0, level.groundY - 12, WIDTH, 12);
 }
 
@@ -1015,6 +1055,41 @@ function drawPlatforms() {
         ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
         ctx.fillStyle = "#e8c547";
         ctx.fillRect(platform.x, platform.y, platform.width, 6);
+      } else if (platformTheme === "backrooms") {
+        ctx.fillStyle = "#4a4a48";
+        ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+        const gSeed = 0;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(platform.x, platform.y, platform.width, platform.height);
+        ctx.clip();
+        const concreteColors = ["#424240", "#4a4a48", "#525250", "#3a3a38", "#5a5a58"];
+        const tileW = 24;
+        const tileH = 18;
+        for (let ty = 0; ty < platform.height + tileH; ty += tileH) {
+          for (let tx = 0; tx < platform.width + tileW; tx += tileW) {
+            const idx = (Math.floor(tx / tileW) + Math.floor(ty / tileH) + gSeed) % concreteColors.length;
+            ctx.fillStyle = concreteColors[idx];
+            ctx.fillRect(platform.x + tx, platform.y + ty, tileW - 1, tileH - 1);
+          }
+        }
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.12)";
+        ctx.lineWidth = 1;
+        for (let tx = 0; tx <= platform.width; tx += tileW) {
+          ctx.beginPath();
+          ctx.moveTo(platform.x + tx, platform.y);
+          ctx.lineTo(platform.x + tx, platform.y + platform.height);
+          ctx.stroke();
+        }
+        for (let ty = 0; ty <= platform.height; ty += tileH) {
+          ctx.beginPath();
+          ctx.moveTo(platform.x, platform.y + ty);
+          ctx.lineTo(platform.x + platform.width, platform.y + ty);
+          ctx.stroke();
+        }
+        ctx.restore();
+        ctx.fillStyle = "#5a5a58";
+        ctx.fillRect(platform.x, platform.y, platform.width, 4);
       } else {
         ctx.fillStyle = "#5e4540";
         ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
@@ -1055,6 +1130,36 @@ function drawPlatforms() {
 
       ctx.fillStyle = "#38c8d8";
       ctx.fillRect(px, py, pw, 5);
+    } else if (platformTheme === "backrooms") {
+      ctx.fillStyle = "#b8960f";
+      ctx.fillRect(px, py, pw, ph);
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(px, py, pw, ph);
+      ctx.clip();
+
+      const wallColors = ["#a08008", "#b8960f", "#c4a535", "#9a7b0a", "#d4b84a"];
+      const gridStep = 12;
+      for (let gy = 0; gy < ph + gridStep; gy += gridStep) {
+        for (let gx = 0; gx < pw + gridStep; gx += gridStep) {
+          const idx = (Math.floor(gx / gridStep) + Math.floor(gy / gridStep) + Math.floor(seed / 50)) % wallColors.length;
+          ctx.fillStyle = wallColors[idx];
+          ctx.fillRect(px + gx, py + gy, gridStep - 1, gridStep - 1);
+        }
+      }
+      ctx.fillStyle = "rgba(0, 0, 0, 0.04)";
+      for (let gx = 0; gx < pw; gx += gridStep * 2) {
+        ctx.fillRect(px + gx, py, 1, ph);
+      }
+      for (let gy = 0; gy < ph; gy += gridStep * 2) {
+        ctx.fillRect(px, py + gy, pw, 1);
+      }
+
+      ctx.restore();
+
+      ctx.fillStyle = "#c4a535";
+      ctx.fillRect(px, py, pw, 5);
     } else {
       ctx.fillStyle = "#6a6a6a";
       ctx.fillRect(px, py, pw, ph);
@@ -1086,6 +1191,57 @@ function drawPlatforms() {
 }
 
 function drawSpikes() {
+  if (platformTheme === "backrooms") {
+    for (const spike of level.spikes) {
+      const cx = spike.x + spike.width / 2;
+      const baseY = spike.y;
+      const trapW = spike.width;
+      const trapH = spike.height;
+      const left = spike.x;
+      const right = spike.x + spike.width;
+      const top = baseY - trapH;
+      ctx.fillStyle = "#1a1a1a";
+      ctx.strokeStyle = "#2a2a2a";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(left, baseY);
+      ctx.lineTo(left + trapW * 0.2, baseY);
+      ctx.lineTo(cx, top + trapH * 0.4);
+      ctx.lineTo(right - trapW * 0.2, baseY);
+      ctx.lineTo(right, baseY);
+      ctx.lineTo(right - trapW * 0.15, baseY - 3);
+      ctx.lineTo(cx, top + trapH * 0.55);
+      ctx.lineTo(left + trapW * 0.15, baseY - 3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#0d0d0d";
+      ctx.beginPath();
+      ctx.moveTo(left + trapW * 0.25, baseY - 2);
+      ctx.lineTo(cx - trapW * 0.08, top + trapH * 0.5);
+      ctx.lineTo(cx, top + trapH * 0.35);
+      ctx.lineTo(cx + trapW * 0.08, top + trapH * 0.5);
+      ctx.lineTo(right - trapW * 0.25, baseY - 2);
+      ctx.lineTo(cx, baseY - 1);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#252525";
+      ctx.stroke();
+      const teeth = 6;
+      for (let i = 0; i <= teeth; i += 1) {
+        const u = i / teeth;
+        const tx = cx + (u - 0.5) * trapW * 0.5;
+        const ty = top + trapH * (0.35 + u * 0.2);
+        ctx.beginPath();
+        ctx.moveTo(tx - 2, ty + 3);
+        ctx.lineTo(tx, ty - 1);
+        ctx.lineTo(tx + 2, ty + 3);
+        ctx.stroke();
+      }
+    }
+    return;
+  }
+
   const t = Date.now() / 80;
   for (const spike of level.spikes) {
     const count = Math.floor(spike.width / 18);
@@ -1161,6 +1317,145 @@ function drawSpikes() {
       }
     }
   }
+}
+
+function drawEntity(halfW, halfH, b) {
+  const now = Date.now() / 1000;
+  const t = now * 2;
+  const glitchPhase = Math.sin(now * 7.3) * 0.5 + 0.5;
+  const jitter = glitchPhase > 0.92 ? (Math.sin(now * 47) * 2) : 0;
+  const legWave = (b.isDigging ? 0.35 : 0.18) * Math.sin(t);
+
+  if (b.isDigging) {
+    const tt = Math.floor(now * 24);
+    const w = halfW * 2 + 32;
+    const h = 36;
+    const left = -halfW - 16;
+    const top = halfH - 6;
+    for (let i = 0; i < 120; i += 1) {
+      const px = (i * 7919 + tt * 313) % 997;
+      const py = (i * 503 + tt * 417 + px) % 499;
+      const x = left + (px / 997) * w;
+      const y = top + (py / 499) * h;
+      const bright = ((i * 619 + tt * 257) % 100) / 100;
+      const on = bright > 0.52;
+      if (!on) continue;
+      const shade = 6 + Math.floor(bright * 28);
+      ctx.fillStyle = `rgb(${shade}, ${Math.max(0, shade - 3)}, ${shade + 5})`;
+      ctx.fillRect(x, y, 1.5, 1.5);
+    }
+    if ((tt % 5) === 0 || (tt % 7) === 2) {
+      const scanY = top + ((tt * 11) % Math.max(1, h - 4));
+      ctx.fillStyle = "rgba(20, 12, 28, 0.4)";
+      ctx.fillRect(left, scanY, w, 1);
+      for (let j = 0; j < 25; j += 1) {
+        const jx = (j * 401 + tt * 89) % 97;
+        const on = ((j + tt) % 3) !== 0;
+        if (on) {
+          ctx.fillStyle = `rgba(${15 + (j % 3) * 8}, 10, 25, 0.7)`;
+          ctx.fillRect(left + (jx / 97) * w, scanY, 2, 1);
+        }
+      }
+    }
+    ctx.fillStyle = "rgba(4, 2, 8, 0.6)";
+    ctx.fillRect(-halfW - 10, halfH - 4, halfW * 2 + 20, 22);
+  }
+
+  ctx.save();
+  ctx.translate(jitter * 0.5, jitter * 0.3);
+
+  function boneLeg(side, along, phase) {
+    const x = along * halfW * 0.85;
+    const y = halfH * 0.38;
+    const wave = legWave * phase;
+    const out = side * (halfW * 0.48 + 5);
+    const kneeOut = side * (halfW * 0.68 + 8);
+    const footOut = side * (halfW * 0.74 + 10);
+    ctx.strokeStyle = glitchPhase > 0.88 ? "rgba(35, 18, 45, 0.9)" : "#0f0d12";
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + out + wave * 22, y + 8);
+    ctx.lineTo(x + kneeOut + wave * 28, y + halfH * 0.55);
+    ctx.lineTo(x + footOut + wave * 30, y + halfH + 2);
+    ctx.stroke();
+    const jx = x + out * 0.6 + wave * 18;
+    const jy = y + 4;
+    ctx.fillStyle = "#0a080c";
+    ctx.beginPath();
+    ctx.ellipse(jx, jy, 4, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(x + kneeOut * 0.7 + wave * 22, y + halfH * 0.3, 3, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  boneLeg(1, -0.58, 1);
+  boneLeg(1, 0.02, 0.72);
+  boneLeg(1, 0.58, 0.35);
+  boneLeg(-1, -0.58, 0.82);
+  boneLeg(-1, 0.02, 0.5);
+  boneLeg(-1, 0.58, 0.2);
+
+  const coreWobble = 0.98 + Math.sin(t * 1.7) * 0.05;
+  const coreSquash = 0.96 + Math.cos(t * 0.9) * 0.06;
+  ctx.fillStyle = "#050508";
+  ctx.strokeStyle = glitchPhase > 0.9 ? "rgba(55, 22, 65, 0.7)" : "rgba(18, 14, 22, 0.95)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.ellipse(0.32 * halfW, 0, halfW * 0.3 * coreWobble, halfH * 0.88 * coreSquash, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(-0.48 * halfW, 0, halfW * 0.36 * coreWobble, halfH * 0.86 * coreSquash, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(-halfW * 0.12, 0, halfW * 0.38 * coreWobble, halfH * 0.8 * coreSquash, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#000000";
+  ctx.beginPath();
+  ctx.ellipse(0, -halfH * 0.08, halfW * 0.9 * coreWobble, halfH * 0.52 * coreSquash, t * 0.08, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = glitchPhase > 0.88 ? "rgba(45, 20, 55, 0.6)" : "rgba(12, 10, 18, 0.9)";
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(0, -halfH * 0.48);
+  ctx.lineTo(0, halfH * 0.48);
+  ctx.stroke();
+
+  const headX = halfW * 0.7 + Math.sin(t * 0.6) * 2;
+  ctx.fillStyle = "#08060a";
+  ctx.strokeStyle = "rgba(22, 16, 28, 0.9)";
+  ctx.beginPath();
+  ctx.ellipse(headX, 0, halfW * 0.26 * (0.98 + Math.sin(t * 1.2) * 0.04), halfH * 0.72, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#000000";
+  ctx.beginPath();
+  ctx.ellipse(headX + halfW * 0.08, 0, halfW * 0.12, halfH * 0.35, -t * 0.15, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(15, 10, 22, 0.8)";
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(headX + halfW * 0.2, -halfH * 0.15);
+  ctx.lineTo(headX + halfW * 0.38 + Math.sin(t * 1.5) * 3, -halfH * 0.35);
+  ctx.moveTo(headX + halfW * 0.2, halfH * 0.15);
+  ctx.lineTo(headX + halfW * 0.36 + Math.sin(t * 1.5 + 1) * 3, halfH * 0.32);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(headX - halfW * 0.15, -halfH * 0.1);
+  ctx.lineTo(headX - halfW * 0.28, -halfH * 0.28);
+  ctx.moveTo(headX - halfW * 0.15, halfH * 0.1);
+  ctx.lineTo(headX - halfW * 0.26, halfH * 0.26);
+  ctx.stroke();
+
+  ctx.restore();
 }
 
 function drawVirusRoach(halfW, halfH, b) {
@@ -1289,6 +1584,12 @@ function drawBeetle(offsetX, offsetY) {
 
   if (platformTheme === "orange") {
     drawVirusRoach(halfW, halfH, b);
+    ctx.restore();
+    return;
+  }
+
+  if (platformTheme === "backrooms") {
+    drawEntity(halfW, halfH, b);
     ctx.restore();
     return;
   }
@@ -1433,6 +1734,13 @@ function drawCoins() {
       ctx.translate(x, y);
       ctx.drawImage(arrowImage, -size / 2, -size / 2, size, size);
       ctx.restore();
+    } else if (platformTheme === "backrooms" && bottleImage.complete && bottleImage.naturalWidth) {
+      const bottleW = 18;
+      const bottleH = 28;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.drawImage(bottleImage, -bottleW / 2, -bottleH / 2, bottleW, bottleH);
+      ctx.restore();
     } else {
       ctx.fillStyle = "#ffd84d";
       ctx.beginPath();
@@ -1465,6 +1773,11 @@ function drawPlayer(offsetX, offsetY) {
     gradient.addColorStop(0.4, "#dd9580");
     gradient.addColorStop(0.85, "#d58a75");
     gradient.addColorStop(1, "#b87262");
+  } else if (platformTheme === "backrooms") {
+    gradient.addColorStop(0, "#d0d0d0");
+    gradient.addColorStop(0.4, "#b8b8b8");
+    gradient.addColorStop(0.85, "#a8a8a8");
+    gradient.addColorStop(1, "#888888");
   } else {
     gradient.addColorStop(0, "#7ae8a8");
     gradient.addColorStop(0.4, "#5dd992");
@@ -1488,13 +1801,14 @@ function drawPlayer(offsetX, offsetY) {
 
   const eyeY = player.crouching ? 2 : -3;
   const eyeR = player.crouching ? 2.5 : 3.5;
-  ctx.fillStyle = platformTheme === "orange" ? "#4a2020" : "#173927";
+  const eyeColor = platformTheme === "orange" ? "#4a2020" : platformTheme === "backrooms" ? "#505050" : "#173927";
+  ctx.fillStyle = eyeColor;
   ctx.beginPath();
   ctx.arc(-7, eyeY, eyeR, 0, Math.PI * 2);
   ctx.arc(7, eyeY, eyeR, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.strokeStyle = platformTheme === "orange" ? "#4a2020" : "#173927";
+  ctx.strokeStyle = eyeColor;
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.arc(0, 4, 8, 0.1 * Math.PI, 0.9 * Math.PI);
@@ -1510,7 +1824,7 @@ function formatTime(seconds) {
 }
 
 function drawHud() {
-  const fontFamily = platformTheme === "orange" ? "'Exo 2', sans-serif" : "Arial";
+  const fontFamily = platformTheme === "orange" ? "'Exo 2', sans-serif" : platformTheme === "backrooms" ? "'Builder Marker', 'Permanent Marker', sans-serif" : "sans-serif";
   ctx.fillStyle = "rgba(16, 25, 47, 0.72)";
   ctx.fillRect(18, 18, 220, 86);
 
@@ -1521,10 +1835,12 @@ function drawHud() {
   if (platformTheme === "orange") {
     const pct = Math.round((collected / TOTAL_COINS) * 100);
     ctx.fillText(`OEE: ${pct}%`, 32, 50);
+  } else if (platformTheme === "backrooms") {
+    ctx.fillText(`Bottles: ${collected}/${TOTAL_COINS}`, 32, 50);
   } else {
     ctx.fillText(`Coins: ${collected}/${TOTAL_COINS}`, 32, 50);
   }
-  ctx.fillText(`Deaths: ${deaths}/${MAX_DEATHS}`, 32, 84);
+  ctx.fillText(`Lives: ${MAX_DEATHS - deaths}`, 32, 84);
 
   ctx.fillStyle = "rgba(16, 25, 47, 0.72)";
   ctx.fillRect(WIDTH - 88, 18, 70, 40);
@@ -1549,7 +1865,7 @@ function drawOverlay() {
     return;
   }
 
-  const fontFamily = platformTheme === "orange" ? "'Exo 2', sans-serif" : "Arial";
+  const fontFamily = platformTheme === "orange" ? "'Exo 2', sans-serif" : platformTheme === "backrooms" ? "'Builder Marker', 'Permanent Marker', sans-serif" : "sans-serif";
   ctx.fillStyle = "rgba(10, 16, 30, 0.6)";
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
@@ -1560,14 +1876,20 @@ function drawOverlay() {
 
   ctx.font = `24px ${fontFamily}`;
   if (gameState === "won") {
-    const collectibleName = platformTheme === "orange" ? "OEE" : "coins";
-    ctx.fillText(`The blob grabbed all 10 ${collectibleName}.`, WIDTH / 2, 260);
+    const winMsg = platformTheme === "orange" ? "You grabbed all Arrows." : platformTheme === "backrooms" ? "You grabbed all Bottles." : "You grabbed all Coins.";
+    ctx.fillText(winMsg, WIDTH / 2, 260);
   } else {
-    ctx.fillText(
-      lostReason === "time" ? "Time ran out." : "The blob died 3 times and lost the run.",
-      WIDTH / 2,
-      260
-    );
+    let loseMsg = "Time ran out.";
+    if (lostReason === "deaths") {
+      if (platformTheme === "orange") {
+        loseMsg = lastDeathCause === "spikes" ? "You died by the saws." : lastDeathCause === "beetle" ? "The Virus got you." : "The blob died 3 times and lost the run.";
+      } else if (platformTheme === "backrooms") {
+        loseMsg = lastDeathCause === "spikes" ? "You died by the traps." : lastDeathCause === "beetle" ? "The Entity got you." : "The blob died 3 times and lost the run.";
+      } else {
+        loseMsg = lastDeathCause === "spikes" ? "You died by the spikes." : lastDeathCause === "beetle" ? "The Beetle got you." : "The blob died 3 times and lost the run.";
+      }
+    }
+    ctx.fillText(loseMsg, WIDTH / 2, 260);
   }
 
   ctx.fillText("Press R to restart.", WIDTH / 2, 310);
@@ -1669,6 +1991,50 @@ window.addEventListener("keyup", (event) => {
   setKeyState(event.code, false);
 });
 
+(function initMobileControls() {
+  const canvasEl = document.getElementById("game");
+  if (canvasEl) {
+    canvasEl.addEventListener("touchstart", (e) => e.preventDefault(), { passive: false });
+    canvasEl.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
+  }
+
+  function setPointerState(left, right, jump, crouch, restart) {
+    if (left !== undefined) input.left = left;
+    if (right !== undefined) input.right = right;
+    if (jump !== undefined) {
+      if (jump && !input.jump) input.jumpPressed = true;
+      input.jump = !!jump;
+    }
+    if (crouch !== undefined) input.crouch = crouch;
+    if (restart) resetGame();
+  }
+
+  function handlePointerDown(e) {
+    if (e.pointerType === "touch") e.preventDefault();
+    const t = e.target;
+    if (t.classList.contains("mobile-btn-left")) setPointerState(true);
+    else if (t.classList.contains("mobile-btn-right")) setPointerState(undefined, true);
+    else if (t.classList.contains("mobile-btn-jump")) setPointerState(undefined, undefined, true);
+    else if (t.classList.contains("mobile-btn-crouch")) setPointerState(undefined, undefined, undefined, true);
+    else if (t.classList.contains("mobile-btn-restart")) setPointerState(undefined, undefined, undefined, undefined, true);
+  }
+
+  function handlePointerUp(e) {
+    const t = e.target;
+    if (t.classList.contains("mobile-btn-left")) setPointerState(false);
+    else if (t.classList.contains("mobile-btn-right")) setPointerState(undefined, false);
+    else if (t.classList.contains("mobile-btn-jump")) setPointerState(undefined, undefined, false);
+    else if (t.classList.contains("mobile-btn-crouch")) setPointerState(undefined, undefined, undefined, false);
+  }
+
+  document.querySelectorAll(".mobile-btn").forEach((btn) => {
+    btn.addEventListener("pointerdown", handlePointerDown, { passive: false });
+    btn.addEventListener("pointerup", handlePointerUp);
+    btn.addEventListener("pointerleave", handlePointerUp);
+    btn.addEventListener("pointercancel", handlePointerUp);
+  });
+})();
+
 resetGame();
 
 (function initVolumeSettings() {
@@ -1703,7 +2069,7 @@ resetGame();
 (function initTheme() {
   try {
     const saved = localStorage.getItem(THEME_STORAGE_KEY);
-    if (saved === "normal" || saved === "orange") platformTheme = saved;
+    if (saved === "classic" || saved === "orange" || saved === "backrooms") platformTheme = saved;
   } catch (_) {}
   function setTheme(theme) {
     platformTheme = theme;
@@ -1711,21 +2077,30 @@ resetGame();
       localStorage.setItem(THEME_STORAGE_KEY, theme);
     } catch (_) {}
     document.body.classList.toggle("theme-orange", theme === "orange");
-    const normalBtn = document.getElementById("theme-normal");
+    document.body.classList.toggle("theme-backrooms", theme === "backrooms");
+    const classicBtn = document.getElementById("theme-classic");
     const orangeBtn = document.getElementById("theme-orange");
-    if (normalBtn) normalBtn.setAttribute("aria-pressed", theme === "normal" ? "true" : "false");
+    const backroomsBtn = document.getElementById("theme-backrooms");
+    if (classicBtn) classicBtn.setAttribute("aria-pressed", theme === "classic" ? "true" : "false");
     if (orangeBtn) orangeBtn.setAttribute("aria-pressed", theme === "orange" ? "true" : "false");
+    if (backroomsBtn) backroomsBtn.setAttribute("aria-pressed", theme === "backrooms" ? "true" : "false");
   }
-  const normalBtn = document.getElementById("theme-normal");
+  const classicBtn = document.getElementById("theme-classic");
   const orangeBtn = document.getElementById("theme-orange");
+  const backroomsBtn = document.getElementById("theme-backrooms");
   document.body.classList.toggle("theme-orange", platformTheme === "orange");
-  if (normalBtn) {
-    normalBtn.setAttribute("aria-pressed", platformTheme === "normal" ? "true" : "false");
-    normalBtn.addEventListener("click", () => setTheme("normal"));
+  document.body.classList.toggle("theme-backrooms", platformTheme === "backrooms");
+  if (classicBtn) {
+    classicBtn.setAttribute("aria-pressed", platformTheme === "classic" ? "true" : "false");
+    classicBtn.addEventListener("click", () => setTheme("classic"));
   }
   if (orangeBtn) {
     orangeBtn.setAttribute("aria-pressed", platformTheme === "orange" ? "true" : "false");
     orangeBtn.addEventListener("click", () => setTheme("orange"));
+  }
+  if (backroomsBtn) {
+    backroomsBtn.setAttribute("aria-pressed", platformTheme === "backrooms" ? "true" : "false");
+    backroomsBtn.addEventListener("click", () => setTheme("backrooms"));
   }
 })();
 
