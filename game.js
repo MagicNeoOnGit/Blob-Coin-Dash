@@ -84,6 +84,7 @@ let lostReason;
 let lastDeathCause = null;
 let bellAt16Played = false;
 let lastTime = 0;
+let pauseButtonEl = null;
 let audioContext;
 let musicGainNode;
 let musicLoopTimeoutId;
@@ -268,6 +269,36 @@ function playLoseSound() {
     osc.start(t);
     osc.stop(t + 0.28);
   });
+}
+
+function clearInput() {
+  input.left = false;
+  input.right = false;
+  input.jump = false;
+  input.jumpPressed = false;
+  input.crouch = false;
+}
+
+function setPaused(paused) {
+  if (paused) {
+    if (gameState !== "playing") return;
+    gameState = "paused";
+    clearInput();
+  } else {
+    if (gameState !== "paused") return;
+    gameState = "playing";
+  }
+
+  document.body.classList.toggle("game-paused", gameState === "paused");
+  if (pauseButtonEl) {
+    const isPaused = gameState === "paused";
+    pauseButtonEl.textContent = isPaused ? "▶" : "⏸";
+    pauseButtonEl.setAttribute("aria-label", isPaused ? "Resume" : "Pause");
+  }
+}
+
+function togglePause() {
+  setPaused(gameState !== "paused");
 }
 
 function getMusicGain() {
@@ -1849,6 +1880,15 @@ function drawOverlay() {
   ctx.fillStyle = "#ffffff";
   ctx.textAlign = "center";
   ctx.font = `bold 54px ${fontFamily}`;
+  if (gameState === "paused") {
+    ctx.fillText("Paused", WIDTH / 2, 210);
+    ctx.font = `24px ${fontFamily}`;
+    ctx.fillText("Adjust settings below.", WIDTH / 2, 260);
+    ctx.fillText("Tap ⏸ / ▶ to resume.", WIDTH / 2, 310);
+    ctx.textAlign = "start";
+    return;
+  }
+
   ctx.fillText(gameState === "won" ? "You Win!" : "Game Over", WIDTH / 2, 210);
 
   ctx.font = `24px ${fontFamily}`;
@@ -1874,6 +1914,9 @@ function drawOverlay() {
 }
 
 function update(dt) {
+  if (gameState === "paused") {
+    return;
+  }
   cloudOffset += dt * CLOUD_SPEED;
   updatePlayer(dt);
 
@@ -1952,6 +1995,12 @@ function setKeyState(code, pressed) {
 }
 
 window.addEventListener("keydown", (event) => {
+  if (event.code === "Escape" || event.code === "KeyP") {
+    event.preventDefault();
+    togglePause();
+    return;
+  }
+
   if (event.code === "KeyR") {
     resetGame();
     return;
@@ -1961,11 +2010,15 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
   }
 
-  setKeyState(event.code, true);
+  if (gameState !== "paused") {
+    setKeyState(event.code, true);
+  }
 });
 
 window.addEventListener("keyup", (event) => {
-  setKeyState(event.code, false);
+  if (gameState !== "paused") {
+    setKeyState(event.code, false);
+  }
 });
 
 (function initMobileControls() {
@@ -1993,6 +2046,7 @@ window.addEventListener("keyup", (event) => {
     else if (t.classList.contains("mobile-btn-right")) setPointerState(undefined, true);
     else if (t.classList.contains("mobile-btn-jump")) setPointerState(undefined, undefined, true);
     else if (t.classList.contains("mobile-btn-crouch")) setPointerState(undefined, undefined, undefined, true);
+    else if (t.classList.contains("mobile-btn-pause")) togglePause();
     else if (t.classList.contains("mobile-btn-restart")) setPointerState(undefined, undefined, undefined, undefined, true);
   }
 
@@ -2010,6 +2064,14 @@ window.addEventListener("keyup", (event) => {
     btn.addEventListener("pointerleave", handlePointerUp);
     btn.addEventListener("pointercancel", handlePointerUp);
   });
+
+  pauseButtonEl = document.querySelector(".mobile-btn-pause");
+  // Sync initial UI state.
+  document.body.classList.toggle("game-paused", gameState === "paused");
+  if (pauseButtonEl) {
+    pauseButtonEl.textContent = gameState === "paused" ? "▶" : "⏸";
+    pauseButtonEl.setAttribute("aria-label", gameState === "paused" ? "Resume" : "Pause");
+  }
 })();
 
 resetGame();

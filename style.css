@@ -131,6 +131,15 @@ canvas {
 }
 
 @media (max-width: 900px) {
+  /* On mobile, settings are shown only while paused. */
+  .settings {
+    display: none;
+  }
+
+  body.game-paused .settings {
+    display: block;
+  }
+
   .mobile-controls {
     display: flex;
     position: fixed;
@@ -141,6 +150,18 @@ canvas {
     align-items: center;
     pointer-events: none;
     z-index: 20;
+  }
+
+  body.game-paused .mobile-controls-left {
+    display: none;
+  }
+
+  body.game-paused .mobile-controls-right .mobile-btn:not(.mobile-btn-pause) {
+    display: none;
+  }
+
+  body.game-paused .mobile-controls {
+    justify-content: flex-end;
   }
 
   .mobile-controls > * {
