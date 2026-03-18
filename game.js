@@ -115,6 +115,8 @@ const arrowImage = new Image();
 arrowImage.src = "arrow.png";
 const bottleImage = new Image();
 bottleImage.src = "bottle.png";
+const bananaImage = new Image();
+bananaImage.src = "assets/banana.png";
 
 function getAudioContext() {
   if (!audioContext) {
@@ -314,7 +316,7 @@ function getMusicGain() {
   if (!ctx) return null;
   if (!musicGainNode) {
     musicGainNode = ctx.createGain();
-    musicGainNode.gain.value = 0.35 * musicVolume;
+    musicGainNode.gain.value = 0.5 * musicVolume;
     musicGainNode.connect(ctx.destination);
   }
   return musicGainNode;
@@ -322,8 +324,8 @@ function getMusicGain() {
 
 function setMusicVolume(value) {
   musicVolume = Math.max(0, Math.min(1, value));
-  if (musicGainNode) musicGainNode.gain.value = 0.35 * musicVolume;
-  if (musicElement) musicElement.volume = 0.35 * musicVolume;
+  if (musicGainNode) musicGainNode.gain.value = 0.5 * musicVolume;
+  if (musicElement) musicElement.volume = 0.5 * musicVolume;
   try {
     localStorage.setItem(VOLUME_STORAGE_KEY_MUSIC, String(musicVolume));
   } catch (_) {}
@@ -360,16 +362,22 @@ function startBackgroundMusic() {
   // Avoid overlapping music if this is called more than once.
   stopBackgroundMusic();
 
-  const src =
-    platformTheme === "backrooms"
-      ? "assets/backrooms_theme.wav"
-      : "assets/classic_theme.wav";
+  let src = "assets/classic_theme.wav";
+  if (platformTheme === "orange") {
+    src = "assets/factory_theme.wav";
+  } else if (platformTheme === "backrooms") {
+    src = "assets/backrooms_theme.wav";
+  } else if (platformTheme === "blank") {
+    src = "assets/blank_theme.wav";
+  } else if (platformTheme === "jungle") {
+    src = "assets/jungle_theme.wav";
+  }
 
   if (!musicElement) {
     musicElement = new Audio(src);
     musicElement.loop = true;
     musicElement.preload = "auto";
-    musicElement.volume = 0.35 * musicVolume;
+    musicElement.volume = 0.5 * musicVolume;
   } else if (musicElement.src.indexOf(src) === -1) {
     // Switch track if the theme changed.
     musicElement.pause();
@@ -379,7 +387,7 @@ function startBackgroundMusic() {
     musicElement.src = src;
     musicElement.loop = true;
     musicElement.preload = "auto";
-    musicElement.volume = 0.35 * musicVolume;
+    musicElement.volume = 0.5 * musicVolume;
   }
 
   const playPromise = musicElement.play();
@@ -965,6 +973,146 @@ function updateSpikes() {
 }
 
 function drawBackground() {
+  if (platformTheme === "blank") {
+    const blankBg = ctx.createLinearGradient(0, 0, 0, HEIGHT);
+    blankBg.addColorStop(0, "#f0f0f3");
+    blankBg.addColorStop(0.5, "#d5d5da");
+    blankBg.addColorStop(1, "#b8b8c0");
+    ctx.fillStyle = blankBg;
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    ctx.fillStyle = "#8a8a90";
+    ctx.fillRect(0, level.groundY - 12, WIDTH, 12);
+    return;
+  }
+
+  if (platformTheme === "jungle") {
+    const jungleSky = ctx.createLinearGradient(0, 0, 0, HEIGHT);
+    jungleSky.addColorStop(0, "#0b4f2d");
+    jungleSky.addColorStop(0.5, "#0a6f3c");
+    jungleSky.addColorStop(1, "#06361d");
+    ctx.fillStyle = jungleSky;
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+    const horizonY = HEIGHT * 0.45;
+    const t = Date.now() / 1000;
+
+    const treeTop = -HEIGHT * 0.35; // off-screen
+    const treeBottom = HEIGHT * 1.15; // off-screen (below)
+
+    function drawJungleTree(x, scale, alpha, leafColor1, leafColor2) {
+      const sway = Math.sin(t * 0.25 + x * 0.01) * 6 * scale;
+      // Thicker bark.
+      const trunkW = 16 * scale;
+      const trunkTopY = treeTop - 60 * scale;
+      const trunkH = treeBottom - trunkTopY;
+      const trunkX = x + sway;
+      const trunkAlpha = Math.min(1, alpha + 0.25);
+      const leafAlpha = Math.max(0.05, alpha * 0.8);
+
+      // Bark trunk
+      ctx.save();
+      ctx.globalAlpha = trunkAlpha;
+      ctx.fillStyle = "#5b3a22";
+      ctx.fillRect(trunkX - trunkW / 2, trunkTopY, trunkW, trunkH);
+      ctx.fillStyle = "#6b4a2f";
+      ctx.fillRect(trunkX - trunkW / 2 + 2 * scale, trunkTopY, trunkW * 0.25, trunkH);
+      ctx.fillStyle = "#4b2f19";
+      ctx.fillRect(trunkX + trunkW / 2 - 2 * scale, trunkTopY, trunkW * 0.25, trunkH);
+      // Leaves use a slightly lower alpha so the bark remains visible.
+      ctx.globalAlpha = leafAlpha;
+
+      // Leaves: stretch beyond screen bounds while remaining visible.
+      const leafYStart = horizonY + HEIGHT * 0.25;
+      const leafYEnd = -HEIGHT * 0.35;
+      const steps = 7;
+      for (let j = 0; j < steps; j += 1) {
+        const u = j / (steps - 1);
+        const y = leafYStart + (leafYEnd - leafYStart) * u;
+        // Wider leaves so canopies extend past the sides of the screen.
+        const leafW = (70 + (steps - j) * 26) * scale;
+        // Taller leaves so the top/bottom of canopies go off-screen.
+        const leafH = (44 + (steps - j) * 22) * scale;
+        ctx.fillStyle = leafColor1;
+        ctx.beginPath();
+        ctx.ellipse(trunkX + sway * 0.25, y, leafW, leafH, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = leafColor2;
+        ctx.beginPath();
+        ctx.ellipse(
+          trunkX + sway * 0.2,
+          y + 8 * scale,
+          leafW * 0.78,
+          leafH * 0.72,
+          0,
+          0,
+          Math.PI * 2
+        );
+        ctx.fill();
+      }
+
+      // Redraw bark on top so the thick trunk stays visible.
+      ctx.globalAlpha = trunkAlpha;
+      ctx.fillStyle = "#5b3a22";
+      ctx.fillRect(trunkX - trunkW / 2, trunkTopY, trunkW, trunkH);
+      ctx.strokeStyle = "#2c1a10";
+      ctx.lineWidth = 2 * scale;
+      ctx.strokeRect(trunkX - trunkW / 2, trunkTopY, trunkW, trunkH);
+
+      ctx.restore();
+    }
+
+    // Back trees (behind moving mist/leaves).
+    for (let i = -2; i <= Math.ceil(WIDTH / 140) + 2; i += 1) {
+      const x = i * 140 + (i % 2 === 0 ? 20 : 0);
+      const scale = 0.75 + (i % 4) * 0.05;
+      drawJungleTree(x, scale, 0.38, "#0b7a3b", "#1ea14f");
+    }
+
+    // Front trees.
+    for (let i = -3; i <= Math.ceil(WIDTH / 95) + 3; i += 1) {
+      const x = i * 95 + (i % 3 === 0 ? 12 : -10);
+      const scale = 0.95 + (i % 5) * 0.03;
+      drawJungleTree(x, scale, 0.52, "#076a35", "#22b85c");
+    }
+
+    // Mist columns (subtle moving haze) drawn after trees so trees stay behind.
+    for (let i = -2; i <= Math.ceil(WIDTH / 160) + 2; i += 1) {
+      const x = i * 160 + Math.sin(t * 0.5 + i * 1.3) * 18;
+      ctx.fillStyle = "rgba(210, 255, 220, 0.035)";
+      ctx.fillRect(x, 0, 70, HEIGHT * 0.85);
+    }
+
+    // Small drifting leaf speckles drawn after trees so they appear in front.
+    ctx.fillStyle = "rgba(38, 130, 60, 0.22)";
+    for (let i = 0; i < 42; i += 1) {
+      const baseX = (i * 83) % WIDTH;
+      const baseY = (i * 47) % (HEIGHT * 0.8);
+      const y = (baseY + (t * 18 + i * 13) % (HEIGHT * 0.8)) - HEIGHT * 0.2;
+      const r = 1 + (i % 3) * 0.65;
+      const dx = Math.sin(t * 0.9 + i) * 14;
+      ctx.beginPath();
+      ctx.arc(baseX + dx, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Ground: mossy strip with a darker base.
+    const groundTop = level.groundY - 12;
+    const groundGrad = ctx.createLinearGradient(0, groundTop, 0, level.groundY + 8);
+    groundGrad.addColorStop(0, "#1a5f35");
+    groundGrad.addColorStop(1, "#0f3b1f");
+    ctx.fillStyle = groundGrad;
+    ctx.fillRect(0, groundTop, WIDTH, 12);
+
+    // A few moss highlights.
+    ctx.fillStyle = "rgba(120, 220, 140, 0.15)";
+    for (let i = 0; i < 12; i += 1) {
+      const x = (i * 97) % WIDTH;
+      const w = 18 + (i % 4) * 10;
+      ctx.fillRect(x, level.groundY - 9, w, 2);
+    }
+    return;
+  }
+
   if (platformTheme === "backrooms") {
     const backroomsBg = ctx.createLinearGradient(0, 0, 0, HEIGHT);
     backroomsBg.addColorStop(0, "#d4c84c");
@@ -1109,6 +1257,16 @@ function drawPlatforms() {
         ctx.restore();
         ctx.fillStyle = "#5a5a58";
         ctx.fillRect(platform.x, platform.y, platform.width, 4);
+      } else if (platformTheme === "blank") {
+        ctx.fillStyle = "#f8f8f8";
+        ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(platform.x, platform.y, platform.width, 4);
+      } else if (platformTheme === "jungle") {
+        ctx.fillStyle = "#26562b";
+        ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+        ctx.fillStyle = "#3a8b3f";
+        ctx.fillRect(platform.x, platform.y, platform.width, 6);
       } else {
         ctx.fillStyle = "#5e4540";
         ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
@@ -1179,6 +1337,30 @@ function drawPlatforms() {
 
       ctx.fillStyle = "#c4a535";
       ctx.fillRect(px, py, pw, 5);
+    } else if (platformTheme === "blank") {
+      ctx.fillStyle = "#f8f8f8";
+      ctx.fillRect(px, py, pw, ph);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(px, py, pw, 3);
+    } else if (platformTheme === "jungle") {
+      ctx.fillStyle = "#2c6a30";
+      ctx.fillRect(px, py, pw, ph);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(px, py, pw, ph);
+      ctx.clip();
+      const vineStep = 12;
+      ctx.strokeStyle = "rgba(10, 30, 14, 0.45)";
+      ctx.lineWidth = 2;
+      for (let vx = px - 10; vx < px + pw + 10; vx += vineStep) {
+        ctx.beginPath();
+        ctx.moveTo(vx, py - 4);
+        ctx.quadraticCurveTo(vx + 6, py + ph * 0.4, vx - 4, py + ph + 6);
+        ctx.stroke();
+      }
+      ctx.restore();
+      ctx.fillStyle = "#45a547";
+      ctx.fillRect(px, py, pw, 4);
     } else {
       ctx.fillStyle = "#6a6a6a";
       ctx.fillRect(px, py, pw, ph);
@@ -1256,6 +1438,107 @@ function drawSpikes() {
         ctx.lineTo(tx, ty - 1);
         ctx.lineTo(tx + 2, ty + 3);
         ctx.stroke();
+      }
+    }
+    return;
+  }
+
+  if (platformTheme === "blank") {
+    for (const spike of level.spikes) {
+      const baseY = spike.y;
+      const segCount = Math.max(1, Math.floor(spike.width / 18));
+      const segW = spike.width / segCount;
+      for (let i = 0; i < segCount; i += 1) {
+        const cx = spike.x + i * segW + segW / 2;
+        const radius = (segW * 0.5);
+        const bumpTop = baseY - spike.height * 0.9;
+        const cy = bumpTop + radius;
+        ctx.fillStyle = "#e03b2f";
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, Math.PI, 0, false);
+        ctx.lineTo(cx + radius, baseY);
+        ctx.lineTo(cx - radius, baseY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = "#b3241c";
+        ctx.lineWidth = 1.3;
+        ctx.stroke();
+      }
+    }
+    return;
+  }
+
+  if (platformTheme === "jungle") {
+    const t = Date.now() / 90;
+    for (const spike of level.spikes) {
+      const baseY = spike.y;
+      const tipY = spike.y - spike.height;
+      const count = Math.max(1, Math.floor(spike.width / 18));
+      const baseWidth = spike.width / count;
+
+      for (let i = 0; i < count; i += 1) {
+        const x0 = spike.x + i * baseWidth + baseWidth / 2;
+        const wave = Math.sin(t + i * 0.7 + spike.x * 0.01);
+
+        const thickness = Math.max(2, baseWidth * 0.16);
+        const outline = "#0f5f2b";
+        const main = "#1ea14f";
+        const headX = x0 + wave * 2;
+        const headY = tipY + wave * 1.5;
+
+        // Snake body path.
+        const seg1Y = baseY - spike.height * 0.25;
+        const seg2Y = baseY - spike.height * 0.55;
+        const seg3Y = baseY - spike.height * 0.8;
+        const off1 = baseWidth * 0.25 + wave * 2;
+        const off2 = baseWidth * 0.18 - wave * 2;
+
+        // Outline stroke.
+        ctx.save();
+        ctx.strokeStyle = outline;
+        ctx.lineWidth = thickness * 1.4;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        ctx.moveTo(x0, baseY);
+        ctx.quadraticCurveTo(x0 - off1, seg1Y, x0 + off2, seg2Y);
+        ctx.quadraticCurveTo(x0 - off2 * 0.7, seg3Y, headX, headY);
+        ctx.stroke();
+
+        // Main stroke.
+        ctx.strokeStyle = main;
+        ctx.lineWidth = thickness;
+        ctx.beginPath();
+        ctx.moveTo(x0, baseY);
+        ctx.quadraticCurveTo(x0 - off1, seg1Y, x0 + off2, seg2Y);
+        ctx.quadraticCurveTo(x0 - off2 * 0.7, seg3Y, headX, headY);
+        ctx.stroke();
+
+        // Head.
+        ctx.fillStyle = "#0f7f33";
+        ctx.beginPath();
+        ctx.moveTo(headX, headY);
+        ctx.lineTo(headX - thickness * 0.9, headY + thickness * 2.2);
+        ctx.lineTo(headX + thickness * 0.9, headY + thickness * 2.2);
+        ctx.closePath();
+        ctx.fill();
+
+        // Eyes.
+        ctx.fillStyle = "#083a18";
+        ctx.beginPath();
+        ctx.arc(headX - thickness * 0.25, headY + thickness * 1.0, 1.2, 0, Math.PI * 2);
+        ctx.arc(headX + thickness * 0.25, headY + thickness * 1.0, 1.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Tongue.
+        ctx.strokeStyle = "rgba(180, 40, 30, 0.9)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(headX, headY + thickness * 1.4);
+        ctx.lineTo(headX, headY + thickness * 2.2);
+        ctx.stroke();
+
+        ctx.restore();
       }
     }
     return;
@@ -1613,6 +1896,179 @@ function drawBeetle(offsetX, offsetY) {
     return;
   }
 
+  if (platformTheme === "jungle") {
+    const t = Date.now() / 160;
+    const step = Math.sin(t + (b.x + b.y) * 0.03) * 4;
+
+    // Digging leaf particles.
+    if (b.isDigging) {
+      const tt = Date.now() * 0.012;
+      for (let i = 0; i < 8; i += 1) {
+        const phase = (i / 8) * Math.PI * 2 + tt * 0.6;
+        const rise = (Math.sin(tt + i * 1.4) * 0.5 + 0.5) * 14 + 4;
+        const side = (i % 2 === 0 ? 1 : -1) * (halfW * 0.45 + (i % 3) * 6);
+        const leafW = 4 + (i % 3);
+        const leafH = 7 + (i % 2) * 2;
+        const alpha = 0.8 - rise / 28;
+        ctx.save();
+        ctx.translate(side, halfH + 4 - rise);
+        ctx.rotate(Math.sin(phase) * 0.4);
+        ctx.fillStyle = `rgba(96, 158, 66, ${Math.max(0.1, alpha)})`;
+        ctx.beginPath();
+        ctx.moveTo(0, -leafH * 0.5);
+        ctx.quadraticCurveTo(leafW * 0.6, 0, 0, leafH * 0.5);
+        ctx.quadraticCurveTo(-leafW * 0.6, 0, 0, -leafH * 0.5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.fillStyle = "rgba(22, 60, 30, 0.5)";
+      ctx.fillRect(-halfW - 4, halfH - 3, b.width + 8, 8);
+    }
+
+    ctx.translate(0, step * 0.1);
+
+    // Spider body
+    const bodyR = halfW * 0.6;
+    const abdomenR = halfW * 0.9;
+
+    // Abdomen
+    ctx.fillStyle = "#2b221a";
+    ctx.beginPath();
+    ctx.ellipse(-halfW * 0.1, 0, abdomenR, halfH * 0.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Thorax / head
+    ctx.fillStyle = "#3a2b1f";
+    ctx.beginPath();
+    ctx.ellipse(halfW * 0.55, -halfH * 0.05, bodyR * 0.7, halfH * 0.55, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Eyes
+    ctx.fillStyle = "#eee3c4";
+    ctx.beginPath();
+    ctx.arc(halfW * 0.65, -halfH * 0.15, 3, 0, Math.PI * 2);
+    ctx.arc(halfW * 0.5, -halfH * 0.1, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#181008";
+    ctx.beginPath();
+    ctx.arc(halfW * 0.65, -halfH * 0.15, 1.4, 0, Math.PI * 2);
+    ctx.arc(halfW * 0.5, -halfH * 0.1, 1.4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Legs (8), crawling on all sides
+    ctx.strokeStyle = "#1f150e";
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    const legBaseY = halfH * 0.2;
+    const legOffsets = [-0.8, -0.4, 0, 0.4, 0.8, -0.2, 0.2, 0.6];
+    for (let i = 0; i < 8; i += 1) {
+      const side = i < 4 ? -1 : 1;
+      const along = legOffsets[i];
+      const phase = i * 0.7;
+      const swing = Math.sin(t + phase) * 0.3;
+      const baseX = along * halfW * 0.9;
+      ctx.beginPath();
+      ctx.moveTo(baseX, legBaseY);
+      ctx.lineTo(baseX + side * (halfW * (0.4 + swing * 0.3)), legBaseY + halfH * 0.4);
+      ctx.lineTo(baseX + side * (halfW * (0.6 + swing * 0.4)), legBaseY + halfH * 0.9);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+    return;
+  }
+
+  if (platformTheme === "blank") {
+    const t = Date.now() / 180;
+    const crawl = Math.sin(t + (b.x + b.y) * 0.02) * 3;
+
+    // Digging smoke effect for the Creature.
+    if (b.isDigging) {
+      const tt = Date.now() * 0.012;
+      for (let i = 0; i < 8; i += 1) {
+        const phase = (i / 8) * Math.PI * 2 + tt * 0.7;
+        const rise = (Math.sin(tt + i * 1.3) * 0.5 + 0.5) * 14 + 4;
+        const side = (i % 2 === 0 ? 1 : -1) * (halfW * 0.4 + (i % 3) * 6 + Math.sin(tt + i) * 4);
+        const size = 3 + (i % 3) * 1.5 + Math.sin(tt * 2 + i) * 1;
+        const alpha = 0.7 - rise / 30;
+        ctx.fillStyle = `rgba(210, 215, 220, ${Math.max(0.08, alpha)})`;
+        ctx.beginPath();
+        ctx.ellipse(side, halfH + 4 - rise, size, size * 1.2, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = "rgba(40, 40, 45, 0.4)";
+      ctx.fillRect(-halfW - 4, halfH - 3, b.width + 8, 9);
+    }
+
+    ctx.translate(0, crawl * 0.15);
+
+    // Green bug body, sized similarly to the beetle.
+    const bodyH = halfH * 0.7;
+    const bodyW = halfW * 1.05;
+
+    // Abdomen
+    ctx.fillStyle = "#1c6b2a";
+    ctx.beginPath();
+    ctx.ellipse(-bodyW * 0.2, 0, bodyW * 0.7, bodyH, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Thorax
+    ctx.fillStyle = "#228b3e";
+    ctx.beginPath();
+    ctx.ellipse(bodyW * 0.2, 0, bodyW * 0.55, bodyH * 0.95, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Head
+    ctx.fillStyle = "#14521f";
+    const headX = bodyW * 0.65;
+    ctx.beginPath();
+    ctx.ellipse(headX, -bodyH * 0.1, bodyW * 0.35, bodyH * 0.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Legs (six), low and crawling
+    ctx.strokeStyle = "#0d3716";
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    const legBaseY = bodyH * 0.8;
+    const legSpread = [ -0.6, -0.2, 0.2, 0.6, -0.1, 0.45 ];
+    for (let i = 0; i < 6; i += 1) {
+      const side = i < 3 ? -1 : 1;
+      const along = legSpread[i];
+      const phase = i * 0.8;
+      const wave = Math.sin(t + phase) * 0.15;
+      const baseX = along * bodyW * 0.8;
+      ctx.beginPath();
+      ctx.moveTo(baseX, legBaseY - 2);
+      ctx.lineTo(baseX + side * (8 + wave * 10), legBaseY + 4);
+      ctx.lineTo(baseX + side * (12 + wave * 12), legBaseY + 7);
+      ctx.stroke();
+    }
+
+    // Back markings
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.35)";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(-bodyW * 0.5, -bodyH * 0.1);
+    ctx.quadraticCurveTo(0, -bodyH * 0.5, bodyW * 0.4, -bodyH * 0.15);
+    ctx.stroke();
+
+    // Eyes
+    ctx.fillStyle = "#e9ffe9";
+    ctx.beginPath();
+    ctx.arc(headX - 4, -bodyH * 0.2, 3, 0, Math.PI * 2);
+    ctx.arc(headX + 4, -bodyH * 0.18, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#0b1b0b";
+    ctx.beginPath();
+    ctx.arc(headX - 4, -bodyH * 0.2, 1.4, 0, Math.PI * 2);
+    ctx.arc(headX + 4, -bodyH * 0.18, 1.4, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+    return;
+  }
+
   const t = Date.now() / 120;
   const legWave = (b.isDigging ? 0.4 : 0.15) * Math.sin(t);
 
@@ -1760,6 +2216,57 @@ function drawCoins() {
       ctx.translate(x, y);
       ctx.drawImage(bottleImage, -bottleW / 2, -bottleH / 2, bottleW, bottleH);
       ctx.restore();
+    } else if (platformTheme === "jungle") {
+      ctx.save();
+      ctx.translate(x, y);
+      // Less rotation/bending in Jungle bananas.
+      ctx.rotate(-0.15);
+
+      if (bananaImage.complete && bananaImage.naturalWidth) {
+        // Draw using the image's original aspect ratio to avoid stretching.
+        const aspect = bananaImage.naturalWidth / bananaImage.naturalHeight;
+        const targetH = coin.radius * 2.35;
+        const targetW = targetH * aspect;
+        ctx.drawImage(bananaImage, -targetW / 2, -targetH / 2, targetW, targetH);
+      } else {
+        // Fallback vector banana if image not loaded yet.
+        const bananaLen = coin.radius * 3.2;
+        const bananaWidth = coin.radius * 0.6;
+
+        ctx.fillStyle = "#ffd86b";
+        ctx.strokeStyle = "#d4a83a";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-bananaLen * 0.5, 0);
+        ctx.quadraticCurveTo(0, -bananaWidth * 1.3, bananaLen * 0.5, 0);
+        ctx.quadraticCurveTo(0, bananaWidth * 1.3, -bananaLen * 0.5, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = "#7b4b13";
+        ctx.beginPath();
+        ctx.ellipse(-bananaLen * 0.58, -bananaWidth * 0.1, bananaWidth * 0.2, bananaWidth * 0.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    } else if (platformTheme === "blank") {
+      ctx.fillStyle = "#000000";
+      ctx.beginPath();
+      ctx.arc(x, y, coin.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#37d14a";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      ctx.fillStyle = "#37d14a";
+      ctx.font = "bold 14px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("P", x, y + 0.5);
+      ctx.textAlign = "start";
+      ctx.textBaseline = "alphabetic";
     } else {
       ctx.fillStyle = "#ffd84d";
       ctx.beginPath();
@@ -1797,6 +2304,16 @@ function drawPlayer(offsetX, offsetY) {
     gradient.addColorStop(0.4, "#b8b8b8");
     gradient.addColorStop(0.85, "#a8a8a8");
     gradient.addColorStop(1, "#888888");
+  } else if (platformTheme === "jungle") {
+    gradient.addColorStop(0, "#c38b4a");
+    gradient.addColorStop(0.4, "#a86f32");
+    gradient.addColorStop(0.85, "#8c5726");
+    gradient.addColorStop(1, "#5b3816");
+  } else if (platformTheme === "blank") {
+    gradient.addColorStop(0, "#2b2b2f");
+    gradient.addColorStop(0.4, "#18181b");
+    gradient.addColorStop(0.85, "#0c0c0e");
+    gradient.addColorStop(1, "#000000");
   } else {
     gradient.addColorStop(0, "#7ae8a8");
     gradient.addColorStop(0.4, "#5dd992");
@@ -1808,19 +2325,28 @@ function drawPlayer(offsetX, offsetY) {
   ctx.ellipse(0, 0, r, h, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
-  ctx.beginPath();
-  ctx.ellipse(-r * 0.35, -h * 0.4, r * 0.4, h * 0.35, 0, 0, Math.PI * 2);
-  ctx.fill();
+  if (platformTheme !== "blank") {
+    ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+    ctx.beginPath();
+    ctx.ellipse(-r * 0.35, -h * 0.4, r * 0.4, h * 0.35, 0, 0, Math.PI * 2);
+    ctx.fill();
 
-  ctx.fillStyle = "rgba(255, 255, 255, 0.25)";
-  ctx.beginPath();
-  ctx.ellipse(-r * 0.1, -h * 0.5, r * 0.2, h * 0.18, 0, 0, Math.PI * 2);
-  ctx.fill();
+    ctx.fillStyle = "rgba(255, 255, 255, 0.25)";
+    ctx.beginPath();
+    ctx.ellipse(-r * 0.1, -h * 0.5, r * 0.2, h * 0.18, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   const eyeY = player.crouching ? 2 : -3;
   const eyeR = player.crouching ? 2.5 : 3.5;
-  const eyeColor = platformTheme === "orange" ? "#4a2020" : platformTheme === "backrooms" ? "#505050" : "#173927";
+  const eyeColor =
+    platformTheme === "orange"
+      ? "#4a2020"
+      : platformTheme === "backrooms"
+        ? "#505050"
+        : platformTheme === "blank"
+          ? "#f2f2f2"
+          : "#173927";
   ctx.fillStyle = eyeColor;
   ctx.beginPath();
   ctx.arc(-7, eyeY, eyeR, 0, Math.PI * 2);
@@ -1843,23 +2369,37 @@ function formatTime(seconds) {
 }
 
 function drawHud() {
-  const fontFamily = platformTheme === "orange" ? "'Exo 2', sans-serif" : platformTheme === "backrooms" ? "'Builder Marker', 'Permanent Marker', sans-serif" : "sans-serif";
+  const fontFamily =
+    platformTheme === "orange"
+      ? "'Exo 2', sans-serif"
+      : platformTheme === "backrooms"
+        ? "'Builder Marker', 'Permanent Marker', sans-serif"
+        : platformTheme === "blank"
+          ? "'Press Start 2P', system-ui, monospace"
+          : platformTheme === "jungle"
+            ? "'Wild Jungle SVG', system-ui, sans-serif"
+          : "sans-serif";
   ctx.fillStyle = "rgba(16, 25, 47, 0.72)";
   ctx.fillRect(18, 18, 220, 86);
 
   ctx.fillStyle = "#ffffff";
-  ctx.font = `bold 24px ${fontFamily}`;
+  const hudFontSize = platformTheme === "blank" ? 14 : 24;
+  ctx.font = `bold ${hudFontSize}px ${fontFamily}`;
   ctx.textAlign = "start";
   const collected = getCollectedCoins();
   if (platformTheme === "orange") {
     const pct = Math.round((collected / TOTAL_COINS) * 100);
     ctx.fillText(`OEE: ${pct}%`, 32, 50);
+  } else if (platformTheme === "blank") {
+    ctx.fillText(`Points: ${collected}/${TOTAL_COINS}`, 32, 50);
   } else if (platformTheme === "backrooms") {
     ctx.fillText(`Bottles: ${collected}/${TOTAL_COINS}`, 32, 50);
+  } else if (platformTheme === "jungle") {
+    ctx.fillText(`Bananas: ${collected * 2}/${TOTAL_COINS * 2}`, 32, 50);
   } else {
     ctx.fillText(`Coins: ${collected}/${TOTAL_COINS}`, 32, 50);
   }
-  ctx.fillText(`Lives: ${MAX_DEATHS - deaths}`, 32, 84);
+  ctx.fillText(`Lives: ${MAX_DEATHS - deaths}`, 32, platformTheme === "blank" ? 72 : 84);
 
   ctx.fillStyle = "rgba(16, 25, 47, 0.72)";
   ctx.fillRect(WIDTH - 88, 18, 70, 40);
@@ -1873,7 +2413,7 @@ function drawHud() {
     const b = Math.round(255 * (1 - ratio));
     ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
   }
-  ctx.font = `bold 24px ${fontFamily}`;
+  ctx.font = `bold ${hudFontSize}px ${fontFamily}`;
   ctx.textAlign = "right";
   ctx.fillText(formatTime(levelTimeRemaining), WIDTH - 24, 48);
   ctx.textAlign = "start";
@@ -1884,28 +2424,52 @@ function drawOverlay() {
     return;
   }
 
-  const fontFamily = platformTheme === "orange" ? "'Exo 2', sans-serif" : platformTheme === "backrooms" ? "'Builder Marker', 'Permanent Marker', sans-serif" : "sans-serif";
+  const fontFamily =
+    platformTheme === "orange"
+      ? "'Exo 2', sans-serif"
+      : platformTheme === "backrooms"
+        ? "'Builder Marker', 'Permanent Marker', sans-serif"
+        : platformTheme === "blank"
+          ? "'Press Start 2P', system-ui, monospace"
+          : platformTheme === "jungle"
+            ? "'Wild Jungle SVG', system-ui, sans-serif"
+          : "sans-serif";
   ctx.fillStyle = "rgba(10, 16, 30, 0.6)";
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
   ctx.fillStyle = "#ffffff";
   ctx.textAlign = "center";
-  ctx.font = `bold 54px ${fontFamily}`;
+  const titleSize = platformTheme === "blank" ? 32 : 54;
+  const bodySize = platformTheme === "blank" ? 14 : 24;
+  ctx.font = `bold ${titleSize}px ${fontFamily}`;
   if (gameState === "paused") {
     ctx.fillText("Paused", WIDTH / 2, 210);
-    ctx.font = `24px ${fontFamily}`;
+    ctx.font = `${bodySize}px ${fontFamily}`;
     ctx.fillText("Adjust settings below.", WIDTH / 2, 260);
     const isMobile = window.matchMedia && window.matchMedia("(max-width: 900px)").matches;
-    ctx.fillText(isMobile ? "Tap ▶ to resume." : "Tap ⏸ / ▶ to resume.", WIDTH / 2, 310);
+    ctx.fillText(
+      isMobile ? "Tap ▶ to resume." : "Press the Space key to Resume.",
+      WIDTH / 2,
+      310
+    );
     ctx.textAlign = "start";
     return;
   }
 
   ctx.fillText(gameState === "won" ? "You Win!" : "Game Over", WIDTH / 2, 210);
 
-  ctx.font = `24px ${fontFamily}`;
+  ctx.font = `${bodySize}px ${fontFamily}`;
   if (gameState === "won") {
-    const winMsg = platformTheme === "orange" ? "You grabbed all Arrows." : platformTheme === "backrooms" ? "You grabbed all Bottles." : "You grabbed all Coins.";
+    const winMsg =
+      platformTheme === "orange"
+        ? "You grabbed all GS Arrows."
+        : platformTheme === "backrooms"
+          ? "You grabbed all Bottles."
+          : platformTheme === "blank"
+            ? "You grabbed all Points."
+            : platformTheme === "jungle"
+              ? "You grabbed all Bananas."
+              : "You grabbed all Coins.";
     ctx.fillText(winMsg, WIDTH / 2, 260);
   } else {
     let loseMsg = "Time ran out.";
@@ -1914,6 +2478,20 @@ function drawOverlay() {
         loseMsg = lastDeathCause === "spikes" ? "You died by the saws." : lastDeathCause === "beetle" ? "The Virus got you." : "The blob died 3 times and lost the run.";
       } else if (platformTheme === "backrooms") {
         loseMsg = lastDeathCause === "spikes" ? "You died by the traps." : lastDeathCause === "beetle" ? "The Entity got you." : "The blob died 3 times and lost the run.";
+      } else if (platformTheme === "blank") {
+        loseMsg =
+          lastDeathCause === "spikes"
+            ? "You died by the objects."
+            : lastDeathCause === "beetle"
+              ? "The Creature got you."
+              : "The blob died 3 times and lost the run.";
+      } else if (platformTheme === "jungle") {
+        loseMsg =
+          lastDeathCause === "spikes"
+            ? "You died by the snakes."
+            : lastDeathCause === "beetle"
+              ? "The Spider got you."
+              : "The blob died 3 times and lost the run.";
       } else {
         loseMsg = lastDeathCause === "spikes" ? "You died by the spikes." : lastDeathCause === "beetle" ? "The Beetle got you." : "The blob died 3 times and lost the run.";
       }
@@ -2008,7 +2586,7 @@ function setKeyState(code, pressed) {
 }
 
 window.addEventListener("keydown", (event) => {
-  if (event.code === "Escape" || event.code === "KeyP") {
+  if (event.code === "Escape" || event.code === "KeyP" || event.code === "Space") {
     event.preventDefault();
     togglePause();
     return;
@@ -2117,7 +2695,7 @@ resetGame();
 (function initTheme() {
   try {
     const saved = localStorage.getItem(THEME_STORAGE_KEY);
-    if (saved === "classic" || saved === "orange" || saved === "backrooms") platformTheme = saved;
+    if (saved === "classic" || saved === "orange" || saved === "backrooms" || saved === "blank" || saved === "jungle") platformTheme = saved;
   } catch (_) {}
   function setTheme(theme) {
     platformTheme = theme;
@@ -2126,6 +2704,8 @@ resetGame();
     } catch (_) {}
     document.body.classList.toggle("theme-orange", theme === "orange");
     document.body.classList.toggle("theme-backrooms", theme === "backrooms");
+    document.body.classList.toggle("theme-blank", theme === "blank");
+    document.body.classList.toggle("theme-jungle", theme === "jungle");
   // Restart background music so the track matches the theme.
   try {
     startBackgroundMusic();
@@ -2133,15 +2713,23 @@ resetGame();
     const classicBtn = document.getElementById("theme-classic");
     const orangeBtn = document.getElementById("theme-orange");
     const backroomsBtn = document.getElementById("theme-backrooms");
+    const blankBtn = document.getElementById("theme-blank");
+    const jungleBtn = document.getElementById("theme-jungle");
     if (classicBtn) classicBtn.setAttribute("aria-pressed", theme === "classic" ? "true" : "false");
     if (orangeBtn) orangeBtn.setAttribute("aria-pressed", theme === "orange" ? "true" : "false");
     if (backroomsBtn) backroomsBtn.setAttribute("aria-pressed", theme === "backrooms" ? "true" : "false");
+    if (blankBtn) blankBtn.setAttribute("aria-pressed", theme === "blank" ? "true" : "false");
+    if (jungleBtn) jungleBtn.setAttribute("aria-pressed", theme === "jungle" ? "true" : "false");
   }
   const classicBtn = document.getElementById("theme-classic");
   const orangeBtn = document.getElementById("theme-orange");
   const backroomsBtn = document.getElementById("theme-backrooms");
+  const blankBtn = document.getElementById("theme-blank");
+  const jungleBtn = document.getElementById("theme-jungle");
   document.body.classList.toggle("theme-orange", platformTheme === "orange");
   document.body.classList.toggle("theme-backrooms", platformTheme === "backrooms");
+  document.body.classList.toggle("theme-blank", platformTheme === "blank");
+  document.body.classList.toggle("theme-jungle", platformTheme === "jungle");
   if (classicBtn) {
     classicBtn.setAttribute("aria-pressed", platformTheme === "classic" ? "true" : "false");
     classicBtn.addEventListener("click", () => setTheme("classic"));
@@ -2153,6 +2741,14 @@ resetGame();
   if (backroomsBtn) {
     backroomsBtn.setAttribute("aria-pressed", platformTheme === "backrooms" ? "true" : "false");
     backroomsBtn.addEventListener("click", () => setTheme("backrooms"));
+  }
+  if (blankBtn) {
+    blankBtn.setAttribute("aria-pressed", platformTheme === "blank" ? "true" : "false");
+    blankBtn.addEventListener("click", () => setTheme("blank"));
+  }
+  if (jungleBtn) {
+    jungleBtn.setAttribute("aria-pressed", platformTheme === "jungle" ? "true" : "false");
+    jungleBtn.addEventListener("click", () => setTheme("jungle"));
   }
 })();
 

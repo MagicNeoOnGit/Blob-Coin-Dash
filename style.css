@@ -12,10 +12,33 @@ body {
 
 body.theme-orange {
   font-family: "Exo 2", sans-serif;
+  background: linear-gradient(180deg, #402010 0%, #7a3b14 40%, #b45a12 100%);
 }
 
 body.theme-backrooms {
   font-family: "Builder Marker", "Permanent Marker", sans-serif;
+  background: linear-gradient(180deg, #d8c663 0%, #e4d472 45%, #c9b24a 100%);
+}
+
+body.theme-jungle {
+  background: linear-gradient(180deg, #05351b 0%, #0a4a26 40%, #0e331e 100%);
+  color: #e8ffef;
+  font-family: "Wild Jungle SVG", system-ui, sans-serif;
+}
+
+body.theme-blank {
+  background: linear-gradient(180deg, #5a5a5f 0%, #2f2f33 55%, #141416 100%);
+  color: #f2f2f2;
+  font-family: "Press Start 2P", system-ui, monospace;
+}
+
+body.theme-blank .hud p,
+body.theme-blank .legend {
+  color: rgba(242, 242, 242, 0.78);
+}
+
+body.theme-blank .controls {
+  color: rgba(242, 242, 242, 0.88);
 }
 
 .game-shell {
