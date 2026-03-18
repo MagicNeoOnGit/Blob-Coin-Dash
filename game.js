@@ -112,9 +112,9 @@ const THEME_STORAGE_KEY = "blobCoinDash_theme";
 let platformTheme = "classic";
 
 const arrowImage = new Image();
-arrowImage.src = "arrow.png";
+arrowImage.src = "assets/arrow.png";
 const bottleImage = new Image();
-bottleImage.src = "bottle.png";
+bottleImage.src = "assets/bottle.png";
 const bananaImage = new Image();
 bananaImage.src = "assets/banana.png";
 
