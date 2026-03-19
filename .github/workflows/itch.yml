@@ -10,11 +10,14 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
+      matrix:
+        channel:
+          - HTML
     steps:
       - uses: actions/upload-artifact@v7.0.0
         with:
           name: ${{ matrix.channel }}
-          path: /
+          path: ./
       - uses: KikimoraGames/itch-publish@v0.0.3
         with:
           butlerApiKey: ${{secrets.BUTLER_API_KEY}}
