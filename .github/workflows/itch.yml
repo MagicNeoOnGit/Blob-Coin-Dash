@@ -1,0 +1,32 @@
+name: Deploy
+
+on: push
+env:
+  ITCH_USERNAME: magic-neo
+  ITCH_GAME_ID: blob-coin-dash
+jobs:
+  deploy:
+    name: Upload to Itch
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        channel:
+          - HTML
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: vimtor/action-zip@v1.3
+        with:
+          files: /
+          dest: deploy.zip
+      - uses: actions/upload-artifact@v7.0.0
+        with:
+          name: ${{ matrix.channel }}
+          path: deploy.zip
+      - uses: KikimoraGames/itch-publish@v0.0.3
+        with:
+          butlerApiKey: ${{secrets.BUTLER_API_KEY}}
+          gameData: deploy.zip
+          itchUsername: ${{env.ITCH_USERNAME}}
+          itchGameId: ${{ env.ITCH_GAME_ID }}
+          buildChannel: ${{ matrix.channel }}

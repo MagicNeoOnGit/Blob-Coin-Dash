@@ -881,6 +881,14 @@ function rectsOverlap(a, b) {
   );
 }
 
+function canPlayerStand(p) {
+  const standY = p.y + p.height - PLAYER_SIZE;
+  const standingBox = { x: p.x, y: standY, width: p.width, height: PLAYER_SIZE };
+  return !level.platforms.some(
+    (platform) => platform.y < standY && rectsOverlap(standingBox, platform)
+  );
+}
+
 function circleIntersectsPlayer(circle) {
   const closestX = Math.max(player.x, Math.min(circle.x, player.x + player.width));
   const closestY = Math.max(player.y, Math.min(circle.y, player.y + player.height));
@@ -929,9 +937,7 @@ function updateSinglePlayer(p, inp, dt, deathSlot) {
   } else if (!inp.crouch && p.crouching) {
     if (p.onGround) {
       const standY = bottom - PLAYER_SIZE;
-      const standingBox = { x: p.x, y: standY, width: p.width, height: PLAYER_SIZE };
-      const ceiling = level.platforms.some((plat) => plat.y < standY && rectsOverlap(standingBox, plat));
-      if (!ceiling) {
+      if (canPlayerStand(p)) {
         p.crouching = false;
         p.height = PLAYER_SIZE;
         p.y = standY;
@@ -947,7 +953,7 @@ function updateSinglePlayer(p, inp, dt, deathSlot) {
   if (inp.left) p.vx -= moveSpeed;
   if (inp.right) p.vx += moveSpeed;
 
-  if (inp.jumpPressed && p.onGround) {
+  if (inp.jumpPressed && p.onGround && canPlayerStand(p)) {
     const jumpSpeed = p.crouching ? JUMP_SPEED * 0.88 : JUMP_SPEED;
     p.vy = -jumpSpeed;
     p.onGround = false;
